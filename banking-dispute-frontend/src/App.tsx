@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Clock, FileText, Phone, Mail, Download, Upload, ArrowRight, Star, Shield } from 'lucide-react';
+import { AlertCircle,  Clock, FileText, Phone, Mail, Download,  ArrowRight, Shield } from 'lucide-react';
 import "./index.css"
 
 interface DisputeData {
@@ -25,9 +25,9 @@ interface GuidanceStep {
 }
 
 const BankingDisputePlatform: React.FC = () => {
-  const [currentStep, setCurrentStep] = useState(0);
+  // const [currentStep, setCurrentStep] = useState(0);
   const [disputes, setDisputes] = useState<DisputeData[]>([]);
-  const [selectedDispute, setSelectedDispute] = useState<DisputeData | null>(null);
+  // const [selectedDispute, setSelectedDispute] = useState<DisputeData | null>(null);
   const [formData, setFormData] = useState({
     type: '',
     amount: '',
