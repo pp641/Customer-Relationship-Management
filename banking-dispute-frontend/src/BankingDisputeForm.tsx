@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle,  Clock, FileText, Phone, Mail, Download,  ArrowRight, Shield } from 'lucide-react';
+import {   Clock, FileText, Download,  ArrowRight } from 'lucide-react';
 import "./index.css"
 import type { DisputeData, GuidanceStep  } from './types/types';
 import  { disputeTypes , baseSteps, TABS , banks, EVIDENCE_CHECKLIST } from './types/types';
