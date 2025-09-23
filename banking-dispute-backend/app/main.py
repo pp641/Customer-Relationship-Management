@@ -1,10 +1,9 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-import openai
 import asyncio
-import json
+import json 
 import uuid
 from datetime import datetime, timedelta
 import logging
@@ -12,6 +11,7 @@ from contextlib import asynccontextmanager
 import httpx
 import os
 from enum import Enum
+import ollama
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Banking Dispute Resolution API",
-    description="AI-powered chatbot for banking dispute resolution",
+    description="AI-powered chatbot for banking dispute resolution using Ollama",
     version="1.0.0"
 )
 
@@ -33,8 +33,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# OpenAI configuration
-openai.api_key = os.getenv("OPENAI_API_KEY", "your-openai-api-key-here")
+# Ollama configuration
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")  # Default to llama2, can use llama3, mistral, etc.
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+# Test Ollama connection on startup
+async def test_ollama_connection():
+    """Test if Ollama is running and model is available"""
+    try:
+        # Check if Ollama is running
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{OLLAMA_HOST}/api/tags")
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                available_models = [model["name"] for model in models]
+                logger.info(f"Available Ollama models: {available_models}")
+                
+                if OLLAMA_MODEL not in available_models:
+                    logger.warning(f"Model {OLLAMA_MODEL} not found. Available models: {available_models}")
+                    # Try to pull the model
+                    logger.info(f"Attempting to pull model {OLLAMA_MODEL}...")
+                    pull_response = await client.post(f"{OLLAMA_HOST}/api/pull", 
+                                                    json={"name": OLLAMA_MODEL})
+                    if pull_response.status_code == 200:
+                        logger.info(f"Successfully pulled {OLLAMA_MODEL}")
+                    else:
+                        logger.error(f"Failed to pull {OLLAMA_MODEL}")
+                
+                return True
+            else:
+                logger.error(f"Ollama not responding: {response.status_code}")
+                return False
+    except Exception as e:
+        logger.error(f"Failed to connect to Ollama: {str(e)}")
+        logger.info("Make sure Ollama is running: ollama serve")
+        return False
 
 # Pydantic models
 class DisputeType(str, Enum):
@@ -70,7 +103,7 @@ class DisputeForm(BaseModel):
     amount: Optional[float] = None
     date: Optional[str] = None
     description: Optional[str] = None
-    cardLast4: Optional[str] = None
+    cardlastfour: Optional[str] = None
     priority: Optional[Priority] = None
 
 class DisputeData(BaseModel):
@@ -82,7 +115,7 @@ class DisputeData(BaseModel):
     status: DisputeStatus = DisputeStatus.SUBMITTED
     priority: Priority
     bank: str
-    cardLast4: str
+    cardlastfour: str
     createdAt: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 class ChatResponse(BaseModel):
@@ -119,36 +152,36 @@ class MCPServer:
         """Get dispute resolution templates from MCP server"""
         templates = {
             "Double Debit / Duplicate Charge": """
-            Subject: Dispute for Duplicate Transaction
+Subject: Dispute for Duplicate Transaction
 
-            Dear Sir/Madam,
-            I am writing to dispute a duplicate transaction on my account.
-            
-            Transaction Details:
-            - Date: {date}
-            - Amount: ₹{amount}
-            - Card ending: {card_last4}
-            
-            I request immediate investigation and reversal of the duplicate charge.
-            
-            Regards,
-            {customer_name}
+Dear Sir/Madam,
+I am writing to dispute a duplicate transaction on my account.
+
+Transaction Details:
+- Date: {date}
+- Amount: ₹{amount}
+- Card ending: {card_last4}
+
+I request immediate investigation and reversal of the duplicate charge.
+
+Regards,
+{customer_name}
             """,
             "Unauthorized Transaction": """
-            Subject: Unauthorized Transaction Dispute
+Subject: Unauthorized Transaction Dispute
 
-            Dear Bank Manager,
-            I wish to report an unauthorized transaction on my account.
-            
-            Transaction Details:
-            - Date: {date}
-            - Amount: ₹{amount}
-            - Description: {description}
-            
-            I did not authorize this transaction and request immediate blocking of my card.
-            
-            Sincerely,
-            {customer_name}
+Dear Bank Manager,
+I wish to report an unauthorized transaction on my account.
+
+Transaction Details:
+- Date: {date}
+- Amount: ₹{amount}
+- Description: {description}
+
+I did not authorize this transaction and request immediate blocking of my card.
+
+Sincerely,
+{customer_name}
             """
         }
         return templates.get(dispute_type, templates["Unauthorized Transaction"])
@@ -171,44 +204,84 @@ class MCPServer:
         }
         return guidance_map.get(dispute_type, guidance_map["Unauthorized Transaction"])
 
-# OpenAI integration
+# Ollama integration
 async def get_ai_response(message: str, context: Dict[str, Any] = {}) -> str:
-    """Get response from OpenAI GPT model"""
+    """Get response from Ollama model"""
     try:
-        system_prompt = f"""
-        You are a helpful banking dispute resolution assistant. Your role is to:
-        1. Help users report banking disputes
-        2. Provide guidance on dispute resolution
-        3. Collect necessary information for dispute filing
-        4. Offer empathetic and professional support
-        
-        Current context: {json.dumps(context)}
-        
-        Respond professionally and empathetically. Keep responses concise but helpful.
-        If asked about specific banking procedures, provide accurate information based on Indian banking regulations.
-        """
-        
-        response = await asyncio.create_task(
-            openai.ChatCompletion.acreate(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message}
-                ],
-                max_tokens=300,
-                temperature=0.7
+        system_prompt = f"""You are a helpful banking dispute resolution assistant for Indian banks. Your role is to:
+1. Help users report banking disputes
+2. Provide guidance on dispute resolution according to RBI guidelines
+3. Collect necessary information for dispute filing
+4. Offer empathetic and professional support
+
+Current context: {json.dumps(context)}
+
+Guidelines:
+- Respond professionally and empathetically
+- Keep responses concise but helpful (max 2-3 sentences)
+- Provide accurate information based on Indian banking regulations
+- Be supportive and understanding of customer frustrations
+- Guide users through the dispute process step by step
+
+User message: {message}
+
+Response:"""
+
+        # Use Ollama client
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": system_prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "top_p": 0.9,
+                        "max_tokens": 200
+                    }
+                }
             )
-        )
-        
-        return response.choices[0].message.content
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("response", "").strip()
+            else:
+                logger.error(f"Ollama API error: {response.status_code} - {response.text}")
+                return get_fallback_response(message)
+                
     except Exception as e:
-        logger.error(f"OpenAI API error: {str(e)}")
-        return "I apologize, but I'm having trouble processing your request right now. Please try again or contact your bank directly for immediate assistance."
+        logger.error(f"Ollama API error: {str(e)}")
+        return get_fallback_response(message)
+
+def get_fallback_response(message: str) -> str:
+    """Fallback response when AI is unavailable"""
+    message_lower = message.lower()
+    
+    if any(word in message_lower for word in ["unauthorized", "fraud", "stolen"]):
+        return "This seems like an urgent unauthorized transaction. Please block your card immediately by calling your bank's helpline and report this fraud within 24 hours for best protection."
+    
+    elif any(word in message_lower for word in ["duplicate", "double", "charged twice"]):
+        return "For duplicate charges, first contact the merchant to request a refund. If they don't respond within 7 days, file a dispute with your bank along with transaction proof."
+    
+    elif any(word in message_lower for word in ["atm", "cash", "withdrawal"]):
+        return "For ATM disputes, immediately contact your bank with the transaction receipt and ATM location details. Most ATM issues are resolved within 2-3 business days."
+    
+    else:
+        return "I understand you're facing a banking issue. Please contact your bank's helpline immediately, or let me help you file a dispute by selecting 'Report a Dispute'."
 
 # API Routes
+@app.on_event("startup")
+async def startup_event():
+    """Test Ollama connection on startup"""
+    logger.info("Testing Ollama connection...")
+    is_connected = await test_ollama_connection()
+    if not is_connected:
+        logger.warning("Ollama not available - using fallback responses")
+
 @app.get("/")
 async def root():
-    return {"message": "Banking Dispute Resolution API", "status": "active"}
+    return {"message": "Banking Dispute Resolution API with Ollama", "status": "active"}
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(chat_request: ChatMessage):
@@ -232,7 +305,7 @@ async def chat_endpoint(chat_request: ChatMessage):
         if session["step"] == "greeting":
             if any(word in message for word in ["hello", "hi", "help", "start"]):
                 return ChatResponse(
-                    response="Hello! I'm your Banking Dispute Assistant. How can I help you today?",
+                    response="Hello! I'm your Banking Dispute Assistant. I can help you resolve banking disputes quickly and effectively. How can I assist you today?",
                     options=[
                         "Report a Dispute",
                         "Track Existing Dispute", 
@@ -250,94 +323,247 @@ async def chat_endpoint(chat_request: ChatMessage):
                         "Track Existing Dispute",
                         "Get Guidance", 
                         "Emergency Help"
-                    ]
+                    ],
+                    context={"session_id": session_id}
                 )
         
         # Handle main menu selections
-        elif "report a dispute" in message:
-            session["step"] = "dispute_type"
-            return ChatResponse(
-                response="I'll help you report a dispute. What type of issue are you experiencing?",
-                options=list(DisputeType.__members__.values())
-            )
+        elif "report a dispute" in message or session["step"] == "main_menu":
+            if "report a dispute" in message:
+                session["step"] = "dispute_type"
+                chat_sessions[session_id] = session
+                return ChatResponse(
+                    response="I'll help you report a dispute. What type of issue are you experiencing?",
+                    options=[dt.value for dt in DisputeType],
+                    context={"session_id": session_id}
+                )
         
         elif "track existing dispute" in message:
             session["step"] = "track_dispute"
+            chat_sessions[session_id] = session
             return ChatResponse(
-                response="Please provide your dispute ID or reference number:"
+                response="Please provide your dispute ID (starts with DSP) or reference number:",
+                context={"session_id": session_id}
             )
         
         elif "get guidance" in message:
             return ChatResponse(
-                response="""Here are some helpful resources:
+                response="""Here are some helpful resources for banking disputes:
 
-• Always contact your bank within 24 hours
-• Gather all transaction evidence (SMS, receipts, screenshots)  
-• File a written complaint with your bank
-• Keep records of all communications
-• Follow up regularly on your case status
+• **Time is critical**: Contact your bank within 24 hours for unauthorized transactions
+• **Gather evidence**: Save SMS alerts, receipts, and screenshots
+• **File written complaint**: Submit formal dispute letter to your bank
+• **Keep records**: Document all communications and reference numbers
+• **Follow up**: Check status regularly and escalate if needed
 
-Would you like detailed guidance for a specific issue?""",
-                options=["Unauthorized Transaction", "Duplicate Charge", "ATM Dispute", "General Tips"]
+Would you like detailed guidance for a specific type of dispute?""",
+                options=["Unauthorized Transaction", "Duplicate Charge", "ATM Dispute", "Merchant Issues"],
+                context={"session_id": session_id}
             )
         
         elif "emergency help" in message:
             helplines = "\n".join([f"**{bank}**: {number}" for bank, number in BANK_HELPLINES.items()])
             return ChatResponse(
-                response=f"""🚨 **Emergency Actions:**
+                response=f"""🚨 **Emergency Actions for Banking Fraud:**
 
-• Block your card immediately
-• Report fraud to bank within 2 hours
+**Immediate Steps:**
+• Block your card/account immediately
+• Report fraud to bank within 2 hours for zero liability
 • File police complaint for criminal activities
+• Change all online banking passwords
 
 **24/7 Bank Helplines:**
 {helplines}
 
+**RBI Banking Ombudsman**: 14448 (Toll-free)
+
 Which bank do you need help with?""",
-                options=BANKS
+                options=BANKS,
+                context={"session_id": session_id}
             )
         
         # Handle dispute form collection
         elif session["step"] == "dispute_type":
-            if message in [dt.value.lower() for dt in DisputeType]:
-                # Find matching dispute type
-                dispute_type = next(dt for dt in DisputeType if dt.value.lower() == message)
-                session["dispute_form"]["type"] = dispute_type.value
+            # Check if message matches any dispute type
+            selected_type = None
+            for dt in DisputeType:
+                if dt.value.lower() in message or message in dt.value.lower():
+                    selected_type = dt
+                    break
+            
+            if selected_type:
+                session["dispute_form"]["type"] = selected_type.value
                 session["step"] = "bank_selection"
+                chat_sessions[session_id] = session
                 
                 return ChatResponse(
-                    response=f"You've selected: {dispute_type.value}\n\nWhich bank is involved?",
-                    options=BANKS
+                    response=f"You've selected: **{selected_type.value}**\n\nWhich bank is involved in this dispute?",
+                    options=BANKS,
+                    context={"session_id": session_id}
+                )
+            else:
+                return ChatResponse(
+                    response="Please select one of the dispute types from the options below:",
+                    options=[dt.value for dt in DisputeType],
+                    context={"session_id": session_id}
                 )
         
         elif session["step"] == "bank_selection":
-            if message.title() in BANKS:
-                session["dispute_form"]["bank"] = message.title()
+            if any(bank.lower() in message for bank in BANKS):
+                selected_bank = next(bank for bank in BANKS if bank.lower() in message)
+                session["dispute_form"]["bank"] = selected_bank
                 session["step"] = "amount_input"
+                chat_sessions[session_id] = session
+                
+                helpline = BANK_HELPLINES.get(selected_bank, "Contact bank directly")
+                return ChatResponse(
+                    response=f"Bank: **{selected_bank}**\nHelpline: {helpline}\n\nWhat is the disputed amount? Please enter the amount in ₹ (e.g., 5000)",
+                    context={"session_id": session_id}
+                )
+        
+        elif session["step"] == "amount_input":
+            # Extract amount from message
+            import re
+            amount_match = re.search(r'[\d,]+\.?\d*', message.replace(',', ''))
+            if amount_match:
+                amount = float(amount_match.group())
+                session["dispute_form"]["amount"] = amount
+                session["step"] = "date_input"
+                chat_sessions[session_id] = session
                 
                 return ChatResponse(
-                    response=f"Bank: {message.title()}\n\nWhat is the disputed amount? (Enter amount in ₹)"
+                    response=f"Amount: ₹{amount:,.2f}\n\nWhen did this transaction occur? Please provide the date (e.g., 2024-01-15 or 15 Jan 2024)",
+                    context={"session_id": session_id}
+                )
+            else:
+                return ChatResponse(
+                    response="Please enter a valid amount in numbers (e.g., 5000 or 1500.50)",
+                    context={"session_id": session_id}
+                )
+        
+        elif session["step"] == "date_input":
+            # Simple date validation - in production, use proper date parsing
+            if any(char.isdigit() for char in message) and len(message) >= 8:
+                session["dispute_form"]["date"] = message
+                session["step"] = "description_input"
+                chat_sessions[session_id] = session
+                
+                return ChatResponse(
+                    response=f"Date: {message}\n\nPlease provide a brief description of the dispute and what happened:",
+                    context={"session_id": session_id}
+                )
+            else:
+                return ChatResponse(
+                    response="Please provide a valid date (e.g., 2024-01-15, 15/01/2024, or 15 Jan 2024)",
+                    context={"session_id": session_id}
+                )
+        
+        elif session["step"] == "description_input":
+            session["dispute_form"]["description"] = message
+            session["step"] = "card_info"
+            chat_sessions[session_id] = session
+            
+            return ChatResponse(
+                response="Please provide the last 4 digits of the card involved (e.g., 1234). If not card-related, type 'N/A':",
+                context={"session_id": session_id}
+            )
+        
+        elif session["step"] == "card_info":
+            session["dispute_form"]["cardlastfour"] = message if message.upper() != "N/A" else "N/A"
+            
+            # Create dispute automatically
+            try:
+                dispute_form = DisputeForm(**session["dispute_form"])
+                dispute_result = await create_dispute(dispute_form)
+                
+                # Clear session
+                del chat_sessions[session_id]
+                
+                return ChatResponse(
+                    response=f"""✅ **Dispute Created Successfully!**
+
+**Dispute ID**: {dispute_result['dispute_id']}
+**Priority**: {dispute_result['priority'].title()}
+**Estimated Resolution**: {dispute_result['estimated_resolution']}
+
+**Next Steps:**
+1. Block your card immediately if fraud-related
+2. File police complaint for unauthorized transactions
+3. Contact your bank: {dispute_result['bank_contact']}
+4. Keep this dispute ID for tracking
+
+You can track your dispute anytime by providing the Dispute ID.""",
+                    action="dispute_created",
+                    dispute_id=dispute_result['dispute_id']
+                )
+            except Exception as e:
+                logger.error(f"Error creating dispute: {str(e)}")
+                return ChatResponse(
+                    response="I encountered an error creating your dispute. Please try again or contact your bank directly.",
+                    options=["Try Again", "Emergency Help"]
+                )
+        
+        elif session["step"] == "track_dispute":
+            # Handle dispute tracking
+            dispute_id = message.upper().strip()
+            if dispute_id.startswith("DSP") and len(dispute_id) == 11:
+                if dispute_id in disputes_db:
+                    dispute = disputes_db[dispute_id]
+                    return ChatResponse(
+                        response=f"""**Dispute Status**: {dispute.status.title().replace('_', ' ')}
+
+**Details:**
+• Type: {dispute.type}
+• Amount: ₹{dispute.amount:,.2f}
+• Bank: {dispute.bank}
+• Created: {dispute.createdAt.split('T')[0]}
+• Priority: {dispute.priority.title()}
+
+**Timeline:**
+✅ Submitted - {dispute.createdAt.split('T')[0]}
+🔄 Under Review - Expected in 1-2 days
+⏳ Resolution - Expected in 5-7 business days
+
+Your dispute is being processed. You'll receive updates via SMS/email."""
+                    )
+                else:
+                    return ChatResponse(
+                        response="Dispute ID not found. Please check the ID and try again, or contact your bank directly."
+                    )
+            else:
+                return ChatResponse(
+                    response="Please provide a valid dispute ID (format: DSP12345678) or reference number."
                 )
         
         # Use AI for complex interactions
         else:
-            ai_response = await get_ai_response(message, context)
-            return ChatResponse(response=ai_response)
+            ai_response = await get_ai_response(chat_request.message, context)
+            return ChatResponse(
+                response=ai_response,
+                context={"session_id": session_id}
+            )
             
     except Exception as e:
         logger.error(f"Chat endpoint error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        return ChatResponse(
+            response="I apologize for the technical issue. Please try again or contact your bank directly for immediate assistance.",
+            options=["Try Again", "Emergency Help"]
+        )
 
 @app.post("/dispute", response_model=Dict[str, Any])
 async def create_dispute(dispute: DisputeForm):
     """Create a new dispute"""
     try:
-        # Determine priority based on amount
+        # Determine priority based on amount and type
         priority = Priority.LOW
         if dispute.amount and dispute.amount > 50000:
             priority = Priority.HIGH
         elif dispute.amount and dispute.amount > 10000:
             priority = Priority.MEDIUM
+        
+        # High priority for fraud-related disputes
+        if dispute.type in [DisputeType.UNAUTHORIZED, DisputeType.MERCHANT_FRAUD, DisputeType.CARD_SKIMMING]:
+            priority = Priority.HIGH
         
         dispute_data = DisputeData(
             type=dispute.type,
@@ -345,7 +571,7 @@ async def create_dispute(dispute: DisputeForm):
             date=dispute.date,
             description=dispute.description,
             bank=dispute.bank,
-            cardLast4=dispute.cardLast4,
+            cardlastfour=dispute.cardlastfour,
             priority=priority
         )
         
@@ -360,7 +586,7 @@ async def create_dispute(dispute: DisputeForm):
             "status": "created",
             "priority": priority.value,
             "next_steps": guidance_steps,
-            "estimated_resolution": "5-7 business days",
+            "estimated_resolution": "5-7 business days" if priority != Priority.HIGH else "2-3 business days",
             "bank_contact": BANK_HELPLINES.get(dispute.bank, "Contact your bank"),
             "created_at": dispute_data.createdAt
         }
@@ -380,9 +606,9 @@ async def get_dispute(dispute_id: str):
         "dispute": dispute,
         "timeline": [
             {"date": dispute.createdAt, "status": "Submitted", "description": "Dispute submitted successfully"},
-            {"date": (datetime.fromisoformat(dispute.createdAt) + timedelta(hours=2)).isoformat(), 
+            {"date": (datetime.fromisoformat(dispute.createdAt.replace('Z', '+00:00').split('+')[0]) + timedelta(hours=2)).isoformat(), 
              "status": "Acknowledged", "description": "Bank acknowledged receipt"},
-            {"date": (datetime.fromisoformat(dispute.createdAt) + timedelta(days=1)).isoformat(), 
+            {"date": (datetime.fromisoformat(dispute.createdAt.replace('Z', '+00:00').split('+')[0]) + timedelta(days=1)).isoformat(), 
              "status": "Under Review", "description": "Investigation started"}
         ]
     }
@@ -438,35 +664,6 @@ async def get_guidance(dispute_type: str):
         logger.error(f"Guidance error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get guidance")
 
-@app.post("/templates/{dispute_type}")
-async def get_template(dispute_type: str, details: Dict[str, Any]):
-    """Generate personalized complaint template"""
-    try:
-        base_template = await MCPServer.get_dispute_templates(dispute_type)
-        
-        # Personalize template
-        personalized_template = base_template.format(
-            date=details.get("date", "[Transaction Date]"),
-            amount=details.get("amount", "[Amount]"),
-            card_last4=details.get("cardLast4", "[Last 4 digits]"),
-            description=details.get("description", "[Description]"),
-            customer_name=details.get("customerName", "[Your Name]")
-        )
-        
-        return {
-            "template": personalized_template,
-            "subject": f"Dispute Resolution Request - {dispute_type}",
-            "attachments_needed": [
-                "Copy of bank statement",
-                "Transaction receipt",
-                "ID proof copy",
-                "Any supporting evidence"
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Template generation error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to generate template")
-
 @app.get("/banks")
 async def get_banks():
     """Get list of supported banks with contact information"""
@@ -482,56 +679,33 @@ async def get_banks():
     
     return {"banks": bank_info}
 
-@app.post("/notify")
-async def send_notification(dispute_id: str, background_tasks: BackgroundTasks):
-    """Send notification about dispute status"""
-    if dispute_id not in disputes_db:
-        raise HTTPException(status_code=404, detail="Dispute not found")
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    # Test Ollama connection
+    ollama_status = "disconnected"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{OLLAMA_HOST}/api/tags")
+            if response.status_code == 200:
+                ollama_status = "connected"
+    except:
+        ollama_status = "disconnected"
     
-    # Add background task for notification
-    background_tasks.add_task(send_sms_notification, dispute_id)
-    
-    return {"message": "Notification sent", "dispute_id": dispute_id}
-
-async def send_sms_notification(dispute_id: str):
-    """Background task to send SMS notification"""
-    # Mock SMS sending - replace with actual SMS service
-    dispute = disputes_db[dispute_id]
-    logger.info(f"SMS sent for dispute {dispute_id}: Your dispute is being processed")
-
-@app.get("/stats")
-async def get_statistics():
-    """Get dispute resolution statistics"""
-    total_disputes = len(disputes_db)
-    if total_disputes == 0:
-        return {"message": "No disputes found"}
-    
-    stats = {
-        "total_disputes": total_disputes,
-        "resolution_rate": "87%",  # Mock data
-        "average_resolution_time": "5.2 days",  # Mock data
-        "by_status": {
-            status.value: len([d for d in disputes_db.values() if d.status == status])
-            for status in DisputeStatus
-        },
-        "by_type": {},
-        "by_bank": {},
-        "monthly_trend": [
-            {"month": "Jan", "disputes": 45, "resolved": 39},
-            {"month": "Feb", "disputes": 52, "resolved": 48},
-            {"month": "Mar", "disputes": 38, "resolved": 35}
-        ]
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0",
+        "services": {
+            "ollama": ollama_status,
+            "model": OLLAMA_MODEL,
+            "mcp_server": "active",
+            "database": "active"
+        }
     }
-    
-    # Calculate type and bank distributions
-    for dispute in disputes_db.values():
-        stats["by_type"][dispute.type] = stats["by_type"].get(dispute.type, 0) + 1
-        stats["by_bank"][dispute.bank] = stats["by_bank"].get(dispute.bank, 0) + 1
-    
-    return stats
 
 @app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket, session_id: str):
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for real-time chat"""
     await websocket.accept()
     
@@ -543,6 +717,7 @@ async def websocket_endpoint(websocket, session_id: str):
             
             # Process message (similar to chat endpoint)
             chat_request = ChatMessage(**message_data)
+            chat_request.session_id = session_id
             response = await chat_endpoint(chat_request)
             
             # Send response back
@@ -552,39 +727,6 @@ async def websocket_endpoint(websocket, session_id: str):
         logger.error(f"WebSocket error: {str(e)}")
     finally:
         await websocket.close()
-
-# Health check endpoint
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0",
-        "services": {
-            "openai": "connected" if openai.api_key else "not configured",
-            "mcp_server": "active",
-            "database": "active"
-        }
-    }
-
-# Error handlers
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    return {
-        "error": exc.detail,
-        "status_code": exc.status_code,
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
-    logger.error(f"Unhandled exception: {str(exc)}")
-    return {
-        "error": "Internal server error",
-        "status_code": 500,
-        "timestamp": datetime.now().isoformat()
-    }
 
 if __name__ == "__main__":
     import uvicorn

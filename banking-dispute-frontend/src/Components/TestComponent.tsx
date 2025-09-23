@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User,  Building2 } from 'lucide-react';
+import axios from 'axios'
+const BASE_URL = 'http://localhost:8000'
 
 interface Message {
   id: string;
@@ -16,7 +18,7 @@ interface DisputeForm {
   amount?: number;
   date?: string;
   description?: string;
-  cardLast4?: string;
+  cardlastfour?: string;
   priority?: 'low' | 'medium' | 'high';
 }
 
@@ -58,7 +60,7 @@ const BankingDisputeChatbot: React.FC = () => {
       ]
     }
   ]);
-  
+  const [shouldCreateDispute, setShouldCreateDispute] = useState(false);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [currentStep, setCurrentStep] = useState('greeting');
@@ -75,6 +77,15 @@ const BankingDisputeChatbot: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+
+  useEffect(() => {
+    if (shouldCreateDispute && disputeForm.cardlastfour) {
+      createDispute();
+      setShouldCreateDispute(false);
+    }
+  }, [disputeForm.cardlastfour, shouldCreateDispute]);
+  
 
   const addMessage = (text: string, sender: 'user' | 'bot', options?: string[], type: 'text' | 'selection' | 'confirmation' = 'text') => {
     const newMessage: Message = {
@@ -249,8 +260,8 @@ const BankingDisputeChatbot: React.FC = () => {
         if (!cardRegex.test(input)) {
           addMessage("Please enter exactly 4 digits (e.g., 1234)", 'bot');
         } else {
-          setDisputeForm(prev => ({ ...prev, cardLast4: input }));
-          await createDispute();
+          setDisputeForm(prev => ({ ...prev, cardlastfour: input }));
+          setShouldCreateDispute(true)
         }
         break;
 
@@ -288,16 +299,38 @@ const BankingDisputeChatbot: React.FC = () => {
     const disputeId = `DSP${Date.now().toString().slice(-6)}`;
     const priority = disputeForm.amount && disputeForm.amount > 10000 ? 'high' : 'medium';
     
+
+    const disputePayload : DisputeForm = {
+      type: disputeForm.type,
+      bank: disputeForm.bank,
+      amount: disputeForm.amount,
+      date: disputeForm.date,
+      description: disputeForm.description,
+      cardlastfour: disputeForm.cardlastfour,
+    };
+
+    const response  = await axios.post<DisputeForm>(
+      `${BASE_URL}/dispute`, 
+      disputePayload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 5000, 
+      }
+    );
+
+    const apiResponse = response.data;
+    console.log("oktest", apiResponse)
     setDisputeForm(prev => ({ ...prev, priority }));
     setCurrentStep('dispute_created');
-    
     addMessage(
       `✅ **Dispute Created Successfully!**\n\n**Dispute ID**: ${disputeId}\n**Type**: ${disputeForm.type}\n**Bank**: ${disputeForm.bank}\n**Amount**: ₹${disputeForm.amount}\n**Priority**: ${priority.toUpperCase()}\n\n**Next Steps:**\n1. Bank will acknowledge within 24 hours\n2. Investigation starts within 3 business days\n3. You'll receive SMS updates\n\n**Important:** Keep all transaction receipts and screenshots safe.`,
       'bot',
       ['Download Summary', 'Get Guidance', 'Track This Dispute', 'Report Another Issue'],
       'confirmation'
     );
-    
+
     setIsLoading(false);
   };
 

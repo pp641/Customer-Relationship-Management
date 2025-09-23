@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {   Clock, FileText, Download,  ArrowRight } from 'lucide-react';
-import "./index.css"
-import type { DisputeData, GuidanceStep  } from './types/types';
-import  { disputeTypes , baseSteps, TABS , banks, EVIDENCE_CHECKLIST } from './types/types';
-import FooterComponent from './Components/Footer';
-import Header from './Components/Header';
+import "../index.css"
+import type { DisputeData, GuidanceStep  } from '../types/types';
+import  { disputeTypes , baseSteps, TABS , banks, EVIDENCE_CHECKLIST } from '../types/types';
+import FooterComponent from './Footer';
+import Header from './Header';
+
+
 
 
 

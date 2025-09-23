@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import uvicorn
 import os
 import httpx
 from pathlib import Path
@@ -258,7 +259,7 @@ Date: {complaint_date}""",
 
 # Initialize default guidance
 DEFAULT_GUIDANCE = {
-    "Unauthorized Transaction": [
+    "Unauthorized-Transaction": [
         GuidanceStep(
             step_number=1,
             title="Immediate Card Security",
@@ -336,7 +337,7 @@ DEFAULT_GUIDANCE = {
         )
     ],
     
-    "Double Debit / Duplicate Charge": [
+    "Duplicate-Charge": [
         GuidanceStep(
             step_number=1,
             title="Verify Transaction Details",
@@ -386,7 +387,7 @@ DEFAULT_GUIDANCE = {
 
 # Initialize default knowledge base
 DEFAULT_KNOWLEDGE = {
-    "Unauthorized Transaction": DisputeKnowledge(
+    "Unauthorized-Transaction": DisputeKnowledge(
         dispute_type="Unauthorized Transaction",
         description="Transactions made without cardholder's knowledge or consent",
         common_causes=[
@@ -405,7 +406,7 @@ DEFAULT_KNOWLEDGE = {
         ]
     ),
     
-    "Double Debit / Duplicate Charge": DisputeKnowledge(
+    "Duplicate-Charge": DisputeKnowledge(
         dispute_type="Double Debit / Duplicate Charge",
         description="Same transaction charged multiple times due to system error",
         common_causes=[
@@ -799,5 +800,4 @@ async def health_check():
     }
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
