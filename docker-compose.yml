@@ -1,144 +1,21 @@
-version: '3.8'
-
+version: "3.9"
 services:
-  # FastAPI Backend
-  backend:
+  main:
     build:
-        context: ./banking-dispute-backend
-        dockerfile: Dockerfile
+      context: ./banking-dispute-backend
+    command: python app/main.py
     ports:
       - "8000:8000"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - DATABASE_URL=postgresql://postgres:password@db:5432/banking_disputes
-      - REDIS_URL=redis://redis:6379/0
-      - MCP_SERVER_URL=http://mcp-server:8080
-    volumes:
-      - ./app:/app
-    depends_on:
-      - db
-      - redis
-      - mcp-server
-    networks:
-      - banking-network
-
-  # PostgreSQL Database
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_DB=banking_disputes
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    networks:
-      - banking-network
-
-  # Redis for caching and session management
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    networks:
-      - banking-network
-
-  # MCP Server (Mock Model Context Protocol server)
-  mcp-server:
-    build: ./banking-dispute-backend/mcp-server
+  mcp:
+    build:
+      context: ./banking-dispute-backend
+    command: python mcp-server/mcp_server.py
     ports:
       - "8080:8080"
-    environment:
-      - SERVER_PORT=8080
-      - LOG_LEVEL=INFO
-    volumes:
-      - ./mcp-server/templates:/app/templates
-      - ./mcp-server/knowledge:/app/knowledge
-    networks:
-      - banking-network
 
-  # Nginx Reverse Proxy
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
-    depends_on:
-      - backend
-    networks:
-      - banking-network
-
-  # React Frontend (for production deployment)
   frontend:
     build:
       context: ./banking-dispute-frontend
-      dockerfile: Dockerfile
+    command: ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]
     ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=http://backend:8000
-    volumes:
-      - ./frontend/src:/app/src
-    networks:
-      - banking-network
-
-  # Celery Worker for background tasks
-  celery-worker:
-    build: .
-    command: celery -A app.celery worker --loglevel=info
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    depends_on:
-      - redis
-      - db
-    volumes:
-      - ./app:/app
-    networks:
-      - banking-network
-
-  # Celery Beat for scheduled tasks
-  celery-beat:
-    build: .
-    command: celery -A app.celery beat --loglevel=info
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    depends_on:
-      - redis
-      - db
-    volumes:
-      - ./app:/app
-    networks:
-      - banking-network
-
-  # Flower for monitoring Celery tasks
-  flower:
-    build: .
-    command: celery -A app.celery flower
-    ports:
-      - "5555:5555"
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    depends_on:
-      - redis
-    networks:
-      - banking-network
-
-volumes:
-  postgres_data:
-  redis_data:
-
-networks:
-  banking-network:
-    driver: bridge
+      - "4173:4173"

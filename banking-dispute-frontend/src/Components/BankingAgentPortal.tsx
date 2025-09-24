@@ -4,7 +4,6 @@ import {
   Filter, 
   SortAsc, 
   SortDesc, 
-  Calendar,
   Building2,
   AlertCircle,
   Clock,
@@ -89,7 +88,6 @@ const DisputeAgentPortal: React.FC = () => {
   const statusOptions = ['pending', 'in_review', 'resolved', 'rejected'];
   const priorityOptions = ['low', 'medium', 'high'];
 
-  // Fetch disputes from API
   const fetchDisputes = async () => {
     try {
       setLoading(true);

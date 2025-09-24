@@ -1,17 +1,15 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-import asyncio
-import json 
+import json
+import logging
+import os
 import uuid
 from datetime import datetime, timedelta
-import logging
-from contextlib import asynccontextmanager
-import httpx
-import os
 from enum import Enum
-import ollama
+from typing import Optional, List, Dict, Any, Coroutine
+
+import httpx
+from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -148,7 +146,7 @@ BANK_HELPLINES = {
 # MCP Server Integration (Mock implementation)
 class MCPServer:
     @staticmethod
-    async def get_dispute_templates(dispute_type: str) -> Dict[str, str]:
+    async def get_dispute_templates(dispute_type: str) -> str:
         """Get dispute resolution templates from MCP server"""
         templates = {
             "Double Debit / Duplicate Charge": """
@@ -730,4 +728,4 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, debug=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
