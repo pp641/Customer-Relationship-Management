@@ -1,0 +1,4 @@
+window.APP_CONFIG = {
+    VITE_REACT_API_URL: "VITE_REACT_API_URL"
+  };
+  

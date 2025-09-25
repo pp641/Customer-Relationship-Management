@@ -16,6 +16,8 @@ services:
   frontend:
     build:
       context: ./banking-dispute-frontend
+    environment:
+      - VITE_REACT_APP_API_URL=${VITE_REACT_APP_API_URL}
     command: ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]
     ports:
       - "4173:4173"
