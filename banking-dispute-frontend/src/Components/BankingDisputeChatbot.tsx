@@ -34,8 +34,7 @@ const BankingDisputeChatbot: React.FC = () => {
     isLoading,
     updateForm,
     createDispute,
-    getDisputeById,
-    resetForm
+    getDisputeById
   } = useDisputeForm();
 
   // Handle dispute creation when form is complete
@@ -369,7 +368,6 @@ const BankingDisputeChatbot: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <ChatInput
         inputText={inputText}
         setInputText={setInputText}
