@@ -1,23 +1,37 @@
 version: "3.9"
+
 services:
   main:
     build:
       context: ./banking-dispute-backend
     command: python app/main.py
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
+
   mcp:
     build:
       context: ./banking-dispute-backend
     command: python mcp-server/mcp_server.py
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
 
   frontend:
     build:
       context: ./banking-dispute-frontend
     environment:
-      - VITE_REACT_APP_API_URL=${VITE_REACT_APP_API_URL}
+      - VITE_REACT_APP_API_URL=http://localhost:80/api
     command: ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]
+    expose:
+      - "4173"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
     ports:
-      - "4173:4173"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    depends_on:
+      - main
+      - mcp
+      - frontend
