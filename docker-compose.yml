@@ -1,23 +1,43 @@
 version: "3.9"
+
 services:
   main:
     build:
       context: ./banking-dispute-backend
-    command: python main.py
-    ports:
-      - "8000:8000"
-  mcp:
-    build:
-      context: ./mcp-server
-    command: python mcp_server.py
-    ports:
-      - "8080:8080"
+    container_name: backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    expose:
+      - "8000"
+    restart: always
 
   frontend:
     build:
       context: ./banking-dispute-frontend
-    environment:
-      - VITE_REACT_APP_API_URL=http://localhost:8000
+      dockerfile: Dockerfile
+      args:
+        VITE_REACT_APP_API_URL: "/api"
+    container_name: frontend
     command: ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]
+    expose:
+      - "4173"
+    volumes:
+      - frontend_build:/app/dist
+    restart: "no"
+
+  caddy:
+    image: caddy:2.8
+    container_name: caddy
+    restart: always
     ports:
-      - "4173:4173"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      - frontend_build:/srv/frontend:ro
+
+volumes:
+  caddy_data:
+  caddy_config:
+  frontend_build:
