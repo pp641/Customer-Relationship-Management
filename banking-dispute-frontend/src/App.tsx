@@ -1,4 +1,3 @@
-// src/App.tsx
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, NavLink, useNavigate } from "react-router-dom";
 import BankingDisputeChatbot from "./Components/BankingDisputeChatbot";
