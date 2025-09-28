@@ -19,7 +19,7 @@ const Sidebar: React.FC = () => {
     <nav className="w-48 bg-gray-100 p-4 flex flex-col space-y-4 border-r">
       <NavLink
         to="/portal"
-        className={({ isActive }) =>
+        className={({ isActive  }) =>
           `p-2 rounded-lg ${isActive ? "bg-blue-500 text-white" : "hover:bg-blue-200"}`
         }
       >
