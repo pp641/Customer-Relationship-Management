@@ -3,6 +3,8 @@ import os
 from fastapi import FastAPI, Depends
 import redis
 from fastapi.middleware.cors import CORSMiddleware
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
 from constants import APP_CONFIG, CORS_SETTINGS
 from dotenv import load_dotenv
 from urllib.parse import quote_plus
@@ -36,7 +38,7 @@ class AppState:
         self.config = {
             'mongo_uri': f"mongodb+srv://{quote_plus(os.getenv('MONGO_USERNAME'))}:{quote_plus(os.getenv('MONGO_PASSWORD'))}@cluster0.vohszmp.mongodb.net/",
             'mongo_db': os.getenv("MONGO_DB"),
-            'ses_smtp_host': os.getenv("SES_SMTP_HOST", "email-smtp.us-east-1.amazonaws.com"),
+            'ses_smtp_region': os.getenv("AWS_REGION"),
             'ses_smtp_port': int(os.getenv("SES_SMTP_PORT", "587")),
             'ses_smtp_user': os.getenv("SES_SMTP_USER"),
             'ses_smtp_pass': os.getenv("SES_SMTP_PASS"),
@@ -46,10 +48,6 @@ class AppState:
 # Global app state instance
 app_state = AppState()
 
-
-# -----------------------------
-# Setup Functions
-# -----------------------------
 async def setup_ollama():
     """Setup and test Ollama connection"""
     app_state.logger.info("Testing Ollama connection...")
@@ -87,26 +85,71 @@ def setup_mongodb():
         return False
 
 
+
+
 def setup_smtp():
-    """Setup SMTP connection for AWS SES"""
     try:
-        server = smtplib.SMTP(
-            app_state.config['ses_smtp_host'], 
-            app_state.config['ses_smtp_port']
-        )
-        server.starttls()
-        server.login(
-            app_state.config['ses_smtp_user'], 
-            app_state.config['ses_smtp_pass']
-        )
-        app_state.smtp_server = server
+        # Load credentials from environment variables (NEVER hardcode)
+        load_dotenv()
         
-        # Set the SMTP server in dependencies module
+        access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        region = os.getenv('AWS_REGION')
+
+        
+        
+        if not access_key or not secret_key:
+            raise ValueError("AWS credentials not found in environment variables")
+        
+        # Create SES client
+        ses_client = boto3.client(
+            'ses',
+            region_name=region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+        
+        # Test the connection by calling a simple API
+        app_state.logger.info("Testing SES connection...")
+        
+        # Test 1: Check if SES is enabled
+        response = ses_client.get_account_sending_enabled()
+        app_state.logger.info(f"SES sending enabled: {response.get('Enabled', False)}")
+        
+        # Test 2: Get sending quota
+        quota_response = ses_client.get_send_quota()
+        app_state.logger.info(f"Daily send quota: {quota_response.get('Max24HourSend', 0)}")
+        app_state.logger.info(f"Current sent count: {quota_response.get('SentLast24Hours', 0)}")
+        
+        # Test 3: List verified email addresses
+        identities = ses_client.list_verified_email_addresses()
+        verified_emails = identities.get('VerifiedEmailAddresses', [])
+        app_state.logger.info(f"Verified email addresses: {verified_emails}")
+        
+        # Store the client
+        app_state.smtp_server = ses_client  # Use ses_client, not smtp_server
+        
+        # Set in dependencies
         dependencies.set_smtp_server(app_state.smtp_server)
         
-        app_state.logger.info("✅ SMTP server connected successfully")
+        app_state.logger.info("✅ AWS SES client connected and tested successfully")
+        return True
+        
+    except ValueError as e:
+        app_state.logger.error(f"❌ Configuration error: {e}")
+        return False
+    except NoCredentialsError:
+        app_state.logger.error("❌ AWS credentials not found")
+        return False
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        error_message = e.response['Error']['Message']
+        app_state.logger.error(f"❌ AWS SES ClientError [{error_code}]: {error_message}")
+        return False
     except Exception as e:
-        app_state.logger.error(f"❌ SMTP setup failed: {e}")
+        app_state.logger.error(f"❌ SES setup failed: {e}")
+        return False
+
 
 
 

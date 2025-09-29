@@ -4,28 +4,84 @@ import jwt
 import redis
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from botocore.exceptions import ClientError, NoCredentialsError
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from pydantic import BaseModel
 import random
 from database import Database
 from models import UsersDB
-from dependencies import get_database, get_logger, get_redis_client
+import smtplib
+from email.mime.text import MIMEText
+from dependencies import get_database, get_logger, get_redis_client, get_smtp_server
 
 logger = get_logger
+
+
 
 # JWT settings
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+
+
+def send_email_otp(to_email: str, otp: str):
+    """Send OTP email using AWS SES API"""
+    try:
+        ses_client = get_smtp_server()
+        ses_client
+        if not ses_client:
+            logger().warning("SES client not configured, cannot send email")
+            return False
+
+        subject = "OTP Verification"
+        body = f"Your OTP code is: {otp}\n\nThis OTP is valid for 5 minutes."
+        from_email = 'prajjwalpandey641@gmail.com'
+        response = ses_client.send_email(
+            Source=from_email,
+            Destination={
+                'ToAddresses': [to_email]
+            },
+            Message={
+                'Subject': {
+                    'Data': subject,
+                    'Charset': 'UTF-8'
+                },
+                'Body': {
+                    'Text': {
+                        'Data': body,
+                        'Charset': 'UTF-8'
+                    }
+                }
+            }
+        )
+        
+        message_id = response['MessageId']
+        logger().info(f"OTP email sent successfully to {to_email}, MessageId: {message_id}")
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        error_message = e.response['Error']['Message']
+        logger().error(f"SES error sending OTP to {to_email}: {error_code} - {error_message}")
+        return False
+    except Exception as e:
+        logger().error(f"Failed to send OTP email to {to_email}: {e}")
+        return False
+
 async def generate_and_store_otp(email: str, expire_minutes: int, redis_client: redis.Redis) -> str:
     otp = f"{random.randint(100000, 999999)}"
+
     if not redis_client:
         logger().warning("Redis client not available, falling back to temp storage")
         temp_otp_storage[email] = otp
     else:
-         redis_client.set(f"otp:{email}", otp, ex=expire_minutes * 60)
+        redis_client.set(f"otp:{email}", otp, ex=expire_minutes * 60)
+
+    # Send OTP email
+    send_email_otp(email, otp)
+
     return otp
 
 async def verify_otp(email: str, otp: str, redis_client: redis.Redis) -> bool:
@@ -381,7 +437,6 @@ async def verify_signup_otp(
     payload: VerifyOtpRequest,
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
-    """Verify OTP for signup"""
     logger().info(f"Verifying signup OTP for: {payload.email}")
     
     otp_valid = await verify_otp(payload.email, payload.otp, redis_client)
@@ -404,7 +459,6 @@ async def verify_signin_otp(
     payload: VerifyOtpRequest,
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
-    """Verify OTP for signin"""
     logger().info(f"Verifying signin OTP for: {payload.email}")
     
     otp_valid = await verify_otp(payload.email, payload.otp, redis_client)
@@ -427,9 +481,7 @@ async def verify_forgot_password_otp(
     payload: VerifyOtpRequest,
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
-    """Verify OTP for password reset"""
-    logger().info(f"Verifying forgot password OTP for: {payload.email}")
-    
+    logger().info(f"Verifying forgot password OTP for: {payload.email}")    
     otp_valid = await verify_otp(payload.email, payload.otp, redis_client)
     
     if not otp_valid:
@@ -451,7 +503,6 @@ async def reset_password(
     db: Database = Depends(get_database),
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
-    """Reset password using OTP"""
     logger().info(f"Password reset attempt for: {payload.email}")
     
     otp_valid = await verify_otp(payload.email, payload.otp, redis_client)
@@ -505,7 +556,6 @@ async def resend_signin_otp(
     payload: OtpRequest,
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
-    """Resend OTP for signin"""
     logger().info(f"Resending signin OTP to: {payload.email}")
     
     otp = await generate_and_store_otp(payload.email, 5, redis_client)

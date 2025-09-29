@@ -1,6 +1,7 @@
 import logging
 from database import Database
 import redis
+import boto3
 
 
 
@@ -53,7 +54,7 @@ def get_logger() -> logging.Logger:
 
 def get_smtp_server():
     if _smtp_server is None:
-        raise RuntimeError("SMTP server not initialized")
+        raise RuntimeError("SMTP client not initialized")
     return _smtp_server
 
 
