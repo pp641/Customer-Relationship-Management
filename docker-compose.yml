@@ -1,6 +1,21 @@
 version: "3.9"
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-defaultpassword}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   main:
     build:
       context: ./banking-dispute-backend
@@ -9,6 +24,12 @@ services:
     expose:
       - "8000"
     restart: always
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-defaultpassword}
+    depends_on:
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
@@ -36,8 +57,12 @@ services:
       - caddy_data:/data
       - caddy_config:/config
       - frontend_build:/srv/frontend:ro
+    depends_on:
+      - main
+      - frontend
 
 volumes:
   caddy_data:
   caddy_config:
   frontend_build:
+  redis_data:
