@@ -208,8 +208,14 @@ def create_app() -> FastAPI:
     """Factory function to create FastAPI app"""
     app = FastAPI(**APP_CONFIG, lifespan=lifespan)
     
-    # CORS middleware
-    app.add_middleware(CORSMiddleware, **CORS_SETTINGS)
+    app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],  
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+    
     
     # Import routers here to avoid circular imports
     from routers.auth import router as auth_router
