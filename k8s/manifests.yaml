@@ -104,7 +104,7 @@ metadata:
   namespace: banking-app
 data:
   Caddyfile: |
-    http://139.59.39.12, http://* {
+    :80 {
         # Handle CORS preflight requests for API before any redirects
         @cors_preflight {
             method OPTIONS

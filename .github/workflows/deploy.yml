@@ -70,8 +70,8 @@ jobs:
     
     - name: Update deployment tags in manifests
       run: |
-        sed -i "s|image: your-registry/banking-backend:.*|image: ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}|g" k8s/manifests.yaml
-        sed -i "s|image: your-registry/banking-frontend:.*|image: ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}|g" k8s/manifests.yaml
+        sed -i "s|image: docker\.io/${{ secrets.DOCKER_USERNAME }}/banking-backend:.*|image: ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}|g" k8s/manifests.yaml
+        sed -i "s|image: docker\.io/${{ secrets.DOCKER_USERNAME }}/banking-frontend:.*|image: ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}|g" k8s/manifests.yaml
 
   deploy:
     runs-on: self-hosted
