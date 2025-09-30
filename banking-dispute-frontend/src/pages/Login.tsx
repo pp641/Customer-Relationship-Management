@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Shield, ArrowRight, ArrowLeft, Eye, EyeOff, Lock } from 'lucide-react';
 import { SendOtp, VerifyOtp  , SignIn  , SignUp, ResetPassword, validatePassword } from '../api/authApi';
-import BankDataTable from '../Components/BankingIFSC';
+import { useNavigate } from 'react-router-dom';
 
 interface User {
   id: string;
@@ -13,6 +13,7 @@ interface User {
 
 
 const AuthComponent: React.FC = () => {
+  const navigate = useNavigate()
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot-password'>('signin');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -50,9 +51,9 @@ const AuthComponent: React.FC = () => {
       
       if (response.success) {
         setUser(response.user);
-        // Note: localStorage is not available in Claude artifacts
-        // localStorage.setItem('auth_token', response.access_token);
         setSuccess('Successfully signed in!');
+        navigate("/bank-data")
+
       } else {
         setError(response.message || 'Invalid credentials. Please try again.');
       }
@@ -253,7 +254,6 @@ const AuthComponent: React.FC = () => {
           >
             Sign Out
           </button>
-          <BankDataTable/>
         </div>
       </div>
     );

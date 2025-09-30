@@ -4,6 +4,7 @@ import BankingDisputeChatbot from "./Components/BankingDisputeChatbot";
 import DisputeAgentPortal from "./Components/BankingAgentPortal";
 import Login from "./pages/Login";
 import { AuthProvider, useAuth } from "./context/authContext";
+import BankDataTable from './Components/BankingIFSC';
 import ProtectedRoute from "./Components/ProtectedRoutes";
 
 const Sidebar: React.FC = () => {
@@ -19,7 +20,7 @@ const Sidebar: React.FC = () => {
     <nav className="w-48 bg-gray-100 p-4 flex flex-col space-y-4 border-r">
       <NavLink
         to="/portal"
-        className={({ isActive  }) =>
+        className={({ isActive }) =>
           `p-2 rounded-lg ${isActive ? "bg-blue-500 text-white" : "hover:bg-blue-200"}`
         }
       >
@@ -32,6 +33,14 @@ const Sidebar: React.FC = () => {
         }
       >
         Chatbot
+      </NavLink>
+      <NavLink
+        to="/bank-data"
+        className={({ isActive }) =>
+          `p-2 rounded-lg ${isActive ? "bg-blue-500 text-white" : "hover:bg-blue-200"}`
+        }
+      >
+        Bank Data
       </NavLink>
 
       {/* Logout Button */}
@@ -56,7 +65,7 @@ const App: React.FC = () => {
             element={
               <div className="flex h-screen w-full">
                 {/* Sidebar */}
-                <Sidebar />
+                {/* <Sidebar /> */}
 
                 {/* Main Content */}
                 <main className="flex-1 p-6">
@@ -75,6 +84,12 @@ const App: React.FC = () => {
                         <ProtectedRoute>
                           <BankingDisputeChatbot />
                         </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/bank-data"
+                      element={
+                          <BankDataTable />
                       }
                     />
                     <Route
