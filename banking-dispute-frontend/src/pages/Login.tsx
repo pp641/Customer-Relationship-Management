@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Shield, ArrowRight, ArrowLeft, Eye, EyeOff, Lock } from 'lucide-react';
 import { SendOtp, VerifyOtp  , SignIn  , SignUp, ResetPassword, validatePassword } from '../api/authApi';
+import BankDataTable from '../Components/BankingIFSC';
 
 interface User {
   id: string;
@@ -252,6 +253,7 @@ const AuthComponent: React.FC = () => {
           >
             Sign Out
           </button>
+          <BankDataTable/>
         </div>
       </div>
     );

@@ -262,8 +262,10 @@ def create_app() -> FastAPI:
     
     # Import routers here to avoid circular imports
     from routers.auth import router as auth_router
+    from routers.banks import router as bank_router
     
     app.include_router(auth_router)
+    app.include_router(bank_router)
     # app.include_router(chat.router)
     # app.include_router(disputes.router)
     # app.include_router(health.router)
