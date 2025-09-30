@@ -109,15 +109,15 @@ jobs:
     
     - name: Wait for Backend rollout
       run: |
-        kubectl rollout status deployment/backend -n banking-app --timeout=5m
+        kubectl rollout status deployment/backend -n banking-app --timeout=20m
     
     - name: Wait for Frontend rollout
       run: |
-        kubectl rollout status deployment/frontend -n banking-app --timeout=5m
+        kubectl rollout status deployment/frontend -n banking-app --timeout=20m
     
     - name: Wait for Caddy rollout
       run: |
-        kubectl rollout status deployment/caddy -n banking-app --timeout=5m
+        kubectl rollout status deployment/caddy -n banking-app --timeout=20m
     
     - name: Verify deployment
       run: |
