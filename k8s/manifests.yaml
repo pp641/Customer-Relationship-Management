@@ -44,7 +44,7 @@ stringData:
 
 ---
 # ================================
-# PersistentVolumeClaim for Redis Data (Reduced)
+# PersistentVolumeClaim for Redis Data
 # ================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -56,12 +56,12 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 2Gi  # Reduced from 5Gi
-  storageClassName: local-path
+      storage: 5Gi
+  storageClassName: local-path  # K3s default, change if needed
 
 ---
 # ================================
-# PersistentVolumeClaim for Caddy Data (Reduced)
+# PersistentVolumeClaim for Caddy Data
 # ================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -73,7 +73,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 500Mi  # Reduced from 1Gi
+      storage: 1Gi
   storageClassName: local-path
 
 ---
@@ -90,7 +90,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 50Mi  # Reduced from 100Mi
+      storage: 100Mi
   storageClassName: local-path
 
 ---
@@ -164,7 +164,7 @@ data:
 
 ---
 # ================================
-# Redis Deployment (Optimized)
+# Redis Deployment
 # ================================
 apiVersion: apps/v1
 kind: Deployment
@@ -192,10 +192,6 @@ spec:
           - "yes"
           - --requirepass
           - $(REDIS_PASSWORD)
-          - --maxmemory
-          - "100mb"  # Limit Redis memory usage
-          - --maxmemory-policy
-          - "allkeys-lru"
         env:
         - name: REDIS_PASSWORD
           valueFrom:
@@ -227,11 +223,11 @@ spec:
           failureThreshold: 3
         resources:
           requests:
-            memory: "64Mi"  # Reduced from 128Mi
-            cpu: "50m"      # Reduced from 100m
+            memory: "128Mi"
+            cpu: "100m"
           limits:
-            memory: "128Mi" # Reduced from 512Mi
-            cpu: "100m"     # Reduced from 500m
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: redis-data
         persistentVolumeClaim:
@@ -257,7 +253,7 @@ spec:
 
 ---
 # ================================
-# Backend Deployment (Optimized)
+# Backend Deployment
 # ================================
 apiVersion: apps/v1
 kind: Deployment
@@ -265,7 +261,7 @@ metadata:
   name: backend
   namespace: banking-app
 spec:
-  replicas: 1  # Reduced from 2
+  replicas: 1
   selector:
     matchLabels:
       app: backend
@@ -280,7 +276,7 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
-        command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]  # Single worker
+        command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
         env:
         - name: REDIS_PASSWORD
           valueFrom:
@@ -296,25 +292,25 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 60  # Increased for slower startup
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 5
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 20
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 5
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
         resources:
           requests:
-            memory: "128Mi"  # Reduced from 256Mi
-            cpu: "100m"      # Reduced from 200m
+            memory: "256Mi"
+            cpu: "200m"
           limits:
-            memory: "256Mi"  # Reduced from 1Gi
-            cpu: "200m"      # Reduced from 1000m
+            memory: "1Gi"
+            cpu: "1000m"
 
 ---
 # ================================
@@ -336,7 +332,7 @@ spec:
 
 ---
 # ================================
-# Frontend Deployment (Optimized)
+# Frontend Deployment
 # ================================
 apiVersion: apps/v1
 kind: Deployment
@@ -344,7 +340,7 @@ metadata:
   name: frontend
   namespace: banking-app
 spec:
-  replicas: 1  # Reduced from 2
+  replicas: 1
   selector:
     matchLabels:
       app: frontend
@@ -364,21 +360,21 @@ spec:
           httpGet:
             path: /
             port: 4173
-          initialDelaySeconds: 60  # Increased for slower startup
-          periodSeconds: 15
+          initialDelaySeconds: 30
+          periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /
             port: 4173
-          initialDelaySeconds: 20
-          periodSeconds: 10
+          initialDelaySeconds: 10
+          periodSeconds: 5
         resources:
           requests:
-            memory: "64Mi"   # Reduced from 128Mi
-            cpu: "50m"       # Reduced from 100m
+            memory: "128Mi"
+            cpu: "100m"
           limits:
-            memory: "128Mi"  # Reduced from 512Mi
-            cpu: "100m"      # Reduced from 500m
+            memory: "512Mi"
+            cpu: "500m"
 
 ---
 # ================================
@@ -400,7 +396,7 @@ spec:
 
 ---
 # ================================
-# Caddy Deployment (Optimized)
+# Caddy Deployment
 # ================================
 apiVersion: apps/v1
 kind: Deployment
@@ -419,7 +415,7 @@ spec:
     spec:
       containers:
       - name: caddy
-        image: caddy:2.8-alpine  # Use alpine for smaller footprint
+        image: caddy:2.8
         ports:
         - containerPort: 80
         - containerPort: 443
@@ -434,23 +430,23 @@ spec:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
         readinessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
         resources:
           requests:
-            memory: "32Mi"   # Reduced from 128Mi
-            cpu: "25m"       # Reduced from 100m
+            memory: "128Mi"
+            cpu: "100m"
           limits:
-            memory: "64Mi"   # Reduced from 512Mi
-            cpu: "50m"       # Reduced from 500m
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: caddy-config
         configMap:
