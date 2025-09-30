@@ -255,7 +255,7 @@ def main():
     
     try:
         # Read the CSV file
-        file_path = "IFSC.csv"  # Replace with your file path
+        file_path = "IFSC.csv"  # Replace with your file pat
         
         if not os.path.exists(file_path):
             print(f"File not found: {file_path}")
