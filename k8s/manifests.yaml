@@ -1,0 +1,485 @@
+# ================================
+# Namespace
+# ================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: banking-app
+
+---
+# ================================
+# ConfigMap for Redis Password
+# ================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-secret
+  namespace: banking-app
+type: Opaque
+stringData:
+  redis-password: "defaultpassword"  # Change this!
+
+---
+# ================================
+# Secret for Backend Environment Variables
+# ================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secrets
+  namespace: banking-app
+type: Opaque
+stringData:
+  MONGO_USERNAME: "prajjwalpandey641"
+  MONGO_PASSWORD: "fdTGKrJ4fj3JZzsi"
+  AWS_REGION: "ap-southeast-2"
+  SES_SMTP_HOST: "email-smtp.ap-southeast-2.amazonaws.com"
+  SES_SMTP_PORT: "587"
+  SES_SMTP_USER: "AKIAQNEMAGYZQADAAYWR"
+  SES_SMTP_PASS: "BCT6msX6oLeOl/nBXRQ0BdNil6EAvAIvc0fqnkonzAAG"
+  AWS_ACCESS_KEY_ID: "AKIAQNEMAGYZRCZX3MX5"
+  AWS_SECRET_ACCESS_KEY: "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"
+  SES_SENDER_EMAIL: "prajjwalpandey641@gmail.com"
+  MONGO_DB: "crmdb"
+
+---
+# ================================
+# PersistentVolumeClaim for Redis Data
+# ================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data-pvc
+  namespace: banking-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: local-path  # K3s default, change if needed
+
+---
+# ================================
+# PersistentVolumeClaim for Caddy Data
+# ================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-data-pvc
+  namespace: banking-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+
+---
+# ================================
+# PersistentVolumeClaim for Caddy Config
+# ================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-config-pvc
+  namespace: banking-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+  storageClassName: local-path
+
+---
+# ================================
+# ConfigMap for Caddyfile
+# ================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-config
+  namespace: banking-app
+data:
+  Caddyfile: |
+    :80 {
+        # Handle CORS preflight requests for API before any redirects
+        @cors_preflight {
+            method OPTIONS
+            path /api/*
+        }
+        
+        handle @cors_preflight {
+            header {
+                Access-Control-Allow-Origin "*"
+                Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+                Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Accept-Encoding, X-CSRF-Token, X-Requested-With"
+                Access-Control-Max-Age "3600"
+            }
+            respond "" 204
+        }
+
+        handle /companylogoicon.svg {
+            reverse_proxy frontend-service:4173
+        }
+
+        handle /assets/index-*.js {
+            reverse_proxy frontend-service:4173
+        }
+        
+        handle /assets/index-*.css {
+            reverse_proxy frontend-service:4173
+        }
+        
+        handle /assets/*.svg {
+            reverse_proxy frontend-service:4173
+        }
+
+        # Customer Tools Go Backend API
+        handle_path /api/* {
+            reverse_proxy backend-service:8000 {
+                header_up Host {upstream_hostport}
+                header_up X-Real-IP {remote_host}
+                header_up X-Forwarded-For {remote_host}
+                header_up X-Forwarded-Proto {scheme}
+            }
+        }
+        
+        # Customer Tools UI App (must be last)
+        handle_path /* {
+            reverse_proxy frontend-service:4173 {
+                header_up Host {upstream_hostport}
+                header_up X-Real-IP {remote_host}
+                header_up X-Forwarded-For {remote_host}
+            }
+        }
+
+        log {
+            output stdout
+            format json
+        }
+    }
+
+---
+# ================================
+# Redis Deployment
+# ================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: banking-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        command:
+          - redis-server
+          - --appendonly
+          - "yes"
+          - --requirepass
+          - $(REDIS_PASSWORD)
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a $REDIS_PASSWORD ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 5
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a $REDIS_PASSWORD ping
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-data-pvc
+
+---
+# ================================
+# Redis Service
+# ================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: banking-app
+spec:
+  selector:
+    app: redis
+  ports:
+  - protocol: TCP
+    port: 6379
+    targetPort: 6379
+  type: ClusterIP
+
+---
+# ================================
+# Backend Deployment
+# ================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: banking-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: docker.io/pp641/banking-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
+        - name: REDIS_URL
+          value: "redis://:$(REDIS_PASSWORD)@redis-service:6379/0"
+        envFrom:
+        - secretRef:
+            name: backend-secrets
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+---
+# ================================
+# Backend Service
+# ================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: banking-app
+spec:
+  selector:
+    app: backend
+  ports:
+  - protocol: TCP
+    port: 8000
+    targetPort: 8000
+  type: ClusterIP
+
+---
+# ================================
+# Frontend Deployment
+# ================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: banking-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: docker.io/pp641/banking-frontend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 4173
+        command: ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 4173
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 4173
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+# ================================
+# Frontend Service
+# ================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: banking-app
+spec:
+  selector:
+    app: frontend
+  ports:
+  - protocol: TCP
+    port: 4173
+    targetPort: 4173
+  type: ClusterIP
+
+---
+# ================================
+# Caddy Deployment
+# ================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy
+  namespace: banking-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: caddy
+  template:
+    metadata:
+      labels:
+        app: caddy
+    spec:
+      containers:
+      - name: caddy
+        image: caddy:2.8
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        volumeMounts:
+        - name: caddy-config
+          mountPath: /etc/caddy
+        - name: caddy-data
+          mountPath: /data
+        - name: caddy-config-storage
+          mountPath: /config
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: caddy-config
+        configMap:
+          name: caddy-config
+      - name: caddy-data
+        persistentVolumeClaim:
+          claimName: caddy-data-pvc
+      - name: caddy-config-storage
+        persistentVolumeClaim:
+          claimName: caddy-config-pvc
+
+---
+# ================================
+# Caddy Service (LoadBalancer/NodePort)
+# ================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-service
+  namespace: banking-app
+spec:
+  selector:
+    app: caddy
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+  - name: https
+    protocol: TCP
+    port: 443
+    targetPort: 443
+    nodePort: 30443
+  type: NodePort  # Change to LoadBalancer if you have one
+

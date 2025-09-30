@@ -1,0 +1,170 @@
+name: Build and Deploy to Kubernetes
+
+on:
+  push:
+    branches:
+      - development
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: docker.io  
+  BACKEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/banking-backend
+  FRONTEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/banking-frontend
+
+jobs:
+  build-and-push:
+    runs-on: self-hosted
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to Docker Registry
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        # Uncomment for private registry:
+        # registry: your-registry:5000
+    
+    - name: Generate version tag
+      id: version
+      run: |
+        SHORT_SHA=$(git rev-parse --short HEAD)
+        BRANCH=${GITHUB_REF#refs/heads/}
+        VERSION="${BRANCH}-${SHORT_SHA}-$(date +%Y%m%d-%H%M%S)"
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_OUTPUT
+    
+    - name: Build and push Backend image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./banking-dispute-backend
+        push: true
+        tags: |
+          ${{ env.BACKEND_IMAGE }}:latest
+          ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.VERSION }}
+          ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}
+        cache-from: type=registry,ref=${{ env.BACKEND_IMAGE }}:buildcache
+        cache-to: type=registry,ref=${{ env.BACKEND_IMAGE }}:buildcache,mode=max
+    
+    - name: Build and push Frontend image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./banking-dispute-frontend
+        push: true
+        build-args: |
+          VITE_REACT_APP_API_URL=/api
+        tags: |
+          ${{ env.FRONTEND_IMAGE }}:latest
+          ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.VERSION }}
+          ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}
+        cache-from: type=registry,ref=${{ env.FRONTEND_IMAGE }}:buildcache
+        cache-to: type=registry,ref=${{ env.FRONTEND_IMAGE }}:buildcache,mode=max
+    
+    - name: Update deployment tags in manifests
+      run: |
+        sed -i "s|image: your-registry/banking-backend:.*|image: ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}|g" k8s/manifests.yaml
+        sed -i "s|image: your-registry/banking-frontend:.*|image: ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.SHORT_SHA }}|g" k8s/manifests.yaml
+
+  deploy:
+    runs-on: self-hosted
+    needs: build-and-push
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set kubectl context
+      run: |
+        export KUBECONFIG=~/.kube/config
+        kubectl config use-context default
+    
+    - name: Create namespace if not exists
+      run: |
+        kubectl create namespace banking-app --dry-run=client -o yaml | kubectl apply -f -
+    
+    - name: Update secrets (only if changed)
+      run: |
+        # Check if secrets exist and update only if needed
+        if ! kubectl get secret backend-secrets -n banking-app &> /dev/null; then
+          kubectl apply -f k8s/manifests.yaml
+        fi
+    
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl apply -f k8s/manifests.yaml
+    
+    - name: Restart deployments to pull new images
+      run: |
+        kubectl rollout restart deployment/backend -n banking-app
+        kubectl rollout restart deployment/frontend -n banking-app
+        kubectl rollout restart deployment/caddy -n banking-app
+    
+    - name: Wait for Backend rollout
+      run: |
+        kubectl rollout status deployment/backend -n banking-app --timeout=5m
+    
+    - name: Wait for Frontend rollout
+      run: |
+        kubectl rollout status deployment/frontend -n banking-app --timeout=5m
+    
+    - name: Wait for Caddy rollout
+      run: |
+        kubectl rollout status deployment/caddy -n banking-app --timeout=5m
+    
+    - name: Verify deployment
+      run: |
+        echo "=== Pods Status ==="
+        kubectl get pods -n banking-app
+        echo ""
+        echo "=== Services ==="
+        kubectl get services -n banking-app
+        echo ""
+        echo "=== Deployments ==="
+        kubectl get deployments -n banking-app
+    
+    - name: Get application URL
+      run: |
+        NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+        if [ -z "$NODE_IP" ]; then
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+        fi
+        echo "Application URL: http://${NODE_IP}:30080"
+    
+    - name: Check pod health
+      run: |
+        # Wait a bit for pods to stabilize
+        sleep 10
+        
+        # Check if any pods are not running
+        NOT_RUNNING=$(kubectl get pods -n banking-app --field-selector=status.phase!=Running --no-headers 2>/dev/null | wc -l)
+        
+        if [ "$NOT_RUNNING" -gt 0 ]; then
+          echo "Warning: Some pods are not in Running state"
+          kubectl get pods -n banking-app
+          exit 1
+        fi
+        
+        echo "All pods are healthy!"
+
+  notify:
+    runs-on: self-hosted
+    needs: [build-and-push, deploy]
+    if: always()
+    
+    steps:
+    - name: Deployment Status
+      run: |
+        if [ "${{ needs.deploy.result }}" == "success" ]; then
+          echo "✅ Deployment successful!"
+        else
+          echo "❌ Deployment failed!"
+          exit 1
+        fi
