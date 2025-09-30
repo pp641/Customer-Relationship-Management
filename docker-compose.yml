@@ -1,6 +1,21 @@
 version: "3.9"
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-defaultpassword}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-defaultpassword}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   main:
     build:
       context: ./banking-dispute-backend
@@ -9,6 +24,22 @@ services:
     expose:
       - "8000"
     restart: always
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-defaultpassword}@redis:6379/0
+      - MONGO_USERNAME=prajjwalpandey641
+      - MONGO_PASSWORD=fdTGKrJ4fj3JZzsi
+      - AWS_REGION=ap-southeast-2
+      - SES_SMTP_HOST=email-smtp.ap-southeast-2.amazonaws.com
+      - SES_SMTP_PORT=587
+      - SES_SMTP_USER=AKIAQNEMAGYZQADAAYWR
+      - SES_SMTP_PASS=BCT6msX6oLeOl/nBXRQ0BdNil6EAvAIvc0fqnkonzAAG
+      - AWS_ACCESS_KEY_ID=AKIAQNEMAGYZRCZX3MX5
+      - AWS_SECRET_ACCESS_KEY=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
+      - SES_SENDER_EMAIL=prajjwalpandey641@gmail.com
+      - MONGO_DB=crmdb
+    depends_on:
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
@@ -22,7 +53,7 @@ services:
       - "4173"
     volumes:
       - frontend_build:/app/dist
-    restart: "no"
+    restart: "always"
 
   caddy:
     image: caddy:2.8
@@ -36,8 +67,12 @@ services:
       - caddy_data:/data
       - caddy_config:/config
       - frontend_build:/srv/frontend:ro
+    depends_on:
+      - main
+      - frontend
 
 volumes:
   caddy_data:
   caddy_config:
   frontend_build:
+  redis_data:
