@@ -1,5 +1,5 @@
 from fastapi import Query, APIRouter, HTTPException
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import pandas as pd
 from enum import Enum
 import os
@@ -59,8 +59,8 @@ def load_ifsc_csv() -> pd.DataFrame:
                     'YES': 'Y', 'NO': 'N', '': 'N', 'NAN': 'N'
                 })
         
-        # Remove completely empty rows
-        df = df.dropna(how='all')
+        # Remove completely empty rows and reset index
+        df = df.dropna(how='all').reset_index(drop=True)
         
         print(f"Successfully loaded {len(df)} records from IFSC.csv")
         return df
@@ -68,19 +68,100 @@ def load_ifsc_csv() -> pd.DataFrame:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading IFSC.csv file: {str(e)}")
 
+# Get distinct values for filter fields
+@router.get("/filter-options/{field}")
+async def get_filter_options(
+    field: str,
+    search: Optional[str] = Query(None, description="Search term for filtering options"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of options to return")
+) -> Dict[str, Any]:
+    """Get distinct values for a specific field with optional search filtering"""
+    try:
+        # Load data if not already loaded
+        if not app_data["loaded"] or app_data["df"] is None:
+            app_data["df"] = load_ifsc_csv()
+            app_data["loaded"] = True
+        
+        df = app_data["df"]
+        
+        # Validate field exists
+        if field.upper() not in df.columns:
+            raise HTTPException(status_code=400, detail=f"Field '{field}' not found in data")
+        
+        field_upper = field.upper()
+        
+        # Get distinct non-empty values
+        distinct_values = df[field_upper].dropna().astype(str)
+        distinct_values = distinct_values[distinct_values.str.strip() != ''].unique()
+        
+        # Apply search filter if provided
+        if search and search.strip():
+            search_term = search.lower()
+            distinct_values = [val for val in distinct_values if search_term in val.lower()]
+        
+        # Sort values
+        distinct_values = sorted(distinct_values)
+        
+        # Apply limit
+        distinct_values = distinct_values[:limit]
+        
+        return {
+            "field": field,
+            "options": [{"value": val, "label": val, "count": len(df[df[field_upper] == val])} for val in distinct_values],
+            "total_options": len(distinct_values),
+            "search_applied": search is not None and search.strip() != ""
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting filter options: {str(e)}")
+
+# Get multiple filter options at once
+@router.get("/filter-options")
+async def get_all_filter_options() -> Dict[str, Any]:
+    """Get distinct values for all filterable fields"""
+    try:
+        # Load data if not already loaded
+        if not app_data["loaded"] or app_data["df"] is None:
+            app_data["df"] = load_ifsc_csv()
+            app_data["loaded"] = True
+        
+        df = app_data["df"]
+        
+        filterable_fields = ['BANK', 'STATE', 'CITY', 'DISTRICT', 'BRANCH', 'CENTRE']
+        filter_options = {}
+        
+        for field in filterable_fields:
+            if field in df.columns:
+                distinct_values = df[field].dropna().astype(str)
+                distinct_values = distinct_values[distinct_values.str.strip() != ''].unique()
+                distinct_values = sorted(distinct_values)[:50]  # Limit to first 50
+                
+                filter_options[field.lower()] = [
+                    {"value": val, "label": val} for val in distinct_values
+                ]
+        
+        return {
+            "filter_options": filter_options,
+            "message": "Filter options loaded successfully"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting filter options: {str(e)}")
+
+# FIXED: Main endpoint with proper filtering order
 @router.get("/")
 async def get_banks(
     # Pagination
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(10, ge=1, le=1000, description="Items per page"),
     
-    # Text filters
-    bank: Optional[str] = Query(None, description="Filter by bank name"),
-    state: Optional[str] = Query(None, description="Filter by state"),
-    city: Optional[str] = Query(None, description="Filter by city"),
-    district: Optional[str] = Query(None, description="Filter by district"),
-    branch: Optional[str] = Query(None, description="Filter by branch"),
-    centre: Optional[str] = Query(None, description="Filter by centre"),
+    # Text filters - now supporting multiple values
+    bank: Optional[List[str]] = Query(None, description="Filter by bank names (multiple allowed)"),
+    state: Optional[List[str]] = Query(None, description="Filter by states (multiple allowed)"),
+    city: Optional[List[str]] = Query(None, description="Filter by cities (multiple allowed)"),
+    district: Optional[List[str]] = Query(None, description="Filter by districts (multiple allowed)"),
+    branch: Optional[List[str]] = Query(None, description="Filter by branches (multiple allowed)"),
+    centre: Optional[List[str]] = Query(None, description="Filter by centres (multiple allowed)"),
     ifsc: Optional[str] = Query(None, description="Filter by IFSC code"),
     micr: Optional[str] = Query(None, description="Filter by MICR code"),
     address: Optional[str] = Query(None, description="Filter by address"),
@@ -101,9 +182,7 @@ async def get_banks(
     sort_by: Optional[str] = Query("BANK", description="Field to sort by"),
     sort_order: SortOrder = Query(SortOrder.ASC, description="Sort order")
 ) -> Dict[str, Any]:
-    """
-    Get bank data from IFSC.csv with comprehensive filtering, sorting, and searching
-    """
+    """Get bank data from IFSC.csv with comprehensive filtering, sorting, and searching"""
     
     try:
         # Load IFSC.csv file if not already loaded
@@ -114,25 +193,26 @@ async def get_banks(
         
         df = app_data["df"].copy()
         
-        # Apply text filters
+        # Apply multi-value text filters
         if bank:
-            df = df[df['BANK'].str.contains(bank, case=False, na=False)]
+            df = df[df['BANK'].isin(bank)]
         
         if state:
-            df = df[df['STATE'].str.contains(state, case=False, na=False)]
+            df = df[df['STATE'].isin(state)]
         
         if city:
-            df = df[df['CITY'].str.contains(city, case=False, na=False)]
+            df = df[df['CITY'].isin(city)]
         
         if district:
-            df = df[df['DISTRICT'].str.contains(district, case=False, na=False)]
+            df = df[df['DISTRICT'].isin(district)]
         
         if branch:
-            df = df[df['BRANCH'].str.contains(branch, case=False, na=False)]
+            df = df[df['BRANCH'].isin(branch)]
         
         if centre and 'CENTRE' in df.columns:
-            df = df[df['CENTRE'].str.contains(centre, case=False, na=False)]
+            df = df[df['CENTRE'].isin(centre)]
         
+        # Apply single-value text filters (for exact matches)
         if ifsc:
             df = df[df['IFSC'].str.contains(ifsc, case=False, na=False)]
         
@@ -172,18 +252,22 @@ async def get_banks(
             if 'UPI' in df.columns:
                 df = df[df['UPI'] == value]
         
-        # Apply search across multiple columns
+        # FIXED: Apply search across multiple columns on the already filtered DataFrame
         if search:
             search_term = search.lower()
             text_columns = ['BANK', 'BRANCH', 'CITY', 'STATE', 'DISTRICT', 'CENTRE', 
                           'ADDRESS', 'IFSC', 'CONTACT', 'MICR', 'SWIFT', 'ISO3166']
-            mask = pd.Series([False] * len(df))
+            
+            # Create mask from the current filtered DataFrame (not original)
+            search_mask = pd.Series([False] * len(df), index=df.index)
             
             for col in text_columns:
                 if col in df.columns:
-                    mask |= df[col].astype(str).str.lower().str.contains(search_term, na=False)
+                    # Use the current df index for alignment
+                    search_mask |= df[col].astype(str).str.lower().str.contains(search_term, na=False)
             
-            df = df[mask]
+            # Apply the search mask
+            df = df[search_mask]
         
         # Apply sorting
         if sort_by and sort_by in df.columns:

@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronLeftIcon, ChevronRightIcon, MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ChevronLeftIcon, ChevronRightIcon, MagnifyingGlassIcon, FunnelIcon, ArrowUpIcon, ArrowDownIcon, XMarkIcon, CheckIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 
+// Types
 interface BankData {
   BANK: string;
   IFSC: string;
   BRANCH: string;
   CENTRE: string;
-  DISTRICT: string;
   STATE: string;
   ADDRESS: string;
   CONTACT: string;
@@ -18,6 +18,12 @@ interface BankData {
   MICR: string;
   UPI: string;
   SWIFT: string;
+}
+
+interface FilterOption {
+  value: string;
+  label: string;
+  count?: number;
 }
 
 interface PaginationInfo {
@@ -43,12 +49,237 @@ interface ApiResponse {
     unique_banks: number;
     unique_states: number;
     unique_cities: number;
-    unique_districts: number;
     payment_methods: Record<string, number>;
   };
 }
 
 type SortOrder = 'asc' | 'desc';
+
+// Multi-select dropdown component
+interface MultiSelectProps {
+  label: string;
+  field: string;
+  selected: string[];
+  onSelectionChange: (field: string, values: string[]) => void;
+  placeholder?: string;
+  apiBaseUrl: string;
+}
+
+const MultiSelectDropdown: React.FC<MultiSelectProps> = ({
+  label,
+  field,
+  selected,
+  onSelectionChange,
+  placeholder = 'Select options...',
+  apiBaseUrl
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [options, setOptions] = useState<FilterOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch options from API
+  const fetchOptions = useCallback(async (search?: string) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.append('search', search);
+      params.append('limit', '200');
+
+      const response = await fetch(`${apiBaseUrl}/banks/filter-options/${field}?${params}`);
+      if (response.ok) {
+        const data = await response.json();
+        setOptions(data.options || []);
+      }
+    } catch (error) {
+      console.error(`Error fetching ${field} options:`, error);
+    } finally {
+      setLoading(false);
+    }
+  }, [field, apiBaseUrl]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isOpen) {
+        fetchOptions(searchTerm);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm, isOpen, fetchOptions]);
+
+  // Initial load
+  useEffect(() => {
+    if (isOpen && options.length === 0) {
+      fetchOptions();
+    }
+  }, [isOpen, options.length, fetchOptions]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleToggleOption = (value: string) => {
+    const newSelected = selected.includes(value)
+      ? selected.filter(item => item !== value)
+      : [...selected, value];
+    
+    onSelectionChange(field, newSelected);
+  };
+
+  const handleSelectAll = () => {
+    const allValues = options.map(option => option.value);
+    onSelectionChange(field, allValues);
+  };
+
+  const handleClearAll = () => {
+    onSelectionChange(field, []);
+  };
+
+  const filteredOptions = options.filter(option =>
+    option.label.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <label className="block text-xs font-medium text-gray-700 mb-1">{label}</label>
+      
+      {/* Dropdown trigger */}
+      <div
+        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md cursor-pointer focus:ring-1 focus:ring-blue-500 bg-white"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex-1 truncate">
+            {selected.length === 0 ? (
+              <span className="text-gray-400">{placeholder}</span>
+            ) : (
+              <span className="text-gray-900">
+                {selected.length === 1 
+                  ? selected[0]
+                  : `${selected.length} selected`
+                }
+              </span>
+            )}
+          </div>
+          <ChevronDownIcon className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </div>
+
+      {/* Selected items display */}
+      {selected.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {selected.slice(0, 3).map(item => (
+            <span
+              key={item}
+              className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-md"
+            >
+              {item}
+              <XMarkIcon
+                className="w-3 h-3 ml-1 cursor-pointer hover:text-blue-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleOption(item);
+                }}
+              />
+            </span>
+          ))}
+          {selected.length > 3 && (
+            <span className="inline-flex items-center px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-md">
+              +{selected.length - 3} more
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Dropdown menu */}
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-80 overflow-hidden">
+          {/* Search box */}
+          <div className="p-2 border-b border-gray-200">
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-3 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="p-2 border-b border-gray-200 bg-gray-50">
+            <div className="flex gap-2">
+              <button
+                onClick={handleSelectAll}
+                className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+              >
+                Select All ({filteredOptions.length})
+              </button>
+              <button
+                onClick={handleClearAll}
+                className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+
+          {/* Options list */}
+          <div className="overflow-y-auto max-h-60">
+            {loading ? (
+              <div className="p-3 text-center text-sm text-gray-500">
+                Loading options...
+              </div>
+            ) : filteredOptions.length === 0 ? (
+              <div className="p-3 text-center text-sm text-gray-500">
+                No options found
+              </div>
+            ) : (
+              filteredOptions.map(option => (
+                <div
+                  key={option.value}
+                  className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                  onClick={() => handleToggleOption(option.value)}
+                >
+                  <div className="flex items-center min-w-0 flex-1">
+                    <div className={`w-4 h-4 border border-gray-300 rounded mr-2 flex items-center justify-center ${
+                      selected.includes(option.value) ? 'bg-blue-600 border-blue-600' : 'bg-white'
+                    }`}>
+                      {selected.includes(option.value) && (
+                        <CheckIcon className="w-3 h-3 text-white" />
+                      )}
+                    </div>
+                    <span className="text-sm text-gray-900 truncate flex-1">
+                      {option.label}
+                    </span>
+                    {option.count && (
+                      <span className="text-xs text-gray-500 ml-2">
+                        ({option.count})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const BankDataTable: React.FC = () => {
   // State management
@@ -57,13 +288,13 @@ const BankDataTable: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
 
+  // Updated filters to support multiple selections
   const [filters, setFilters] = useState({
-    bank: '',
-    state: '',
-    city: '',
-    district: '',
-    branch: '',
-    centre: '',
+    bank: [] as string[],
+    state: [] as string[],
+    city: [] as string[],
+    branch: [] as string[],
+    centre: [] as string[],
     ifsc: '',
     micr: '',
     address: '',
@@ -84,7 +315,7 @@ const BankDataTable: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const [showFilters, setShowFilters] = useState(false);
 
-  const API_BASE_URL = '/api'; 
+  const API_BASE_URL = '/api';
 
   // Fetch data function
   const fetchData = useCallback(async () => {
@@ -104,12 +335,34 @@ const BankDataTable: React.FC = () => {
         params.append('search', search.trim());
       }
 
-      // Add filter parameters
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== '' && value !== undefined) {
-          params.append(key, value.toString());
-        }
-      });
+      // Add multi-value filter parameters
+      filters.bank.forEach(value => params.append('bank', value));
+      filters.state.forEach(value => params.append('state', value));
+      filters.city.forEach(value => params.append('city', value));
+      filters.branch.forEach(value => params.append('branch', value));
+      filters.centre.forEach(value => params.append('centre', value));
+
+      // Add single-value filter parameters
+      if (filters.ifsc) params.append('ifsc', filters.ifsc);
+      if (filters.micr) params.append('micr', filters.micr);
+      if (filters.address) params.append('address', filters.address);
+      if (filters.contact) params.append('contact', filters.contact);
+      if (filters.swift) params.append('swift', filters.swift);
+      if (filters.iso3166) params.append('iso3166', filters.iso3166);
+
+      // Add boolean filter parameters
+      if (filters.imps_enabled !== undefined) {
+        params.append('imps_enabled', filters.imps_enabled.toString());
+      }
+      if (filters.rtgs_enabled !== undefined) {
+        params.append('rtgs_enabled', filters.rtgs_enabled.toString());
+      }
+      if (filters.neft_enabled !== undefined) {
+        params.append('neft_enabled', filters.neft_enabled.toString());
+      }
+      if (filters.upi_enabled !== undefined) {
+        params.append('upi_enabled', filters.upi_enabled.toString());
+      }
 
       const response = await fetch(`${API_BASE_URL}/banks/?${params}`);
       
@@ -142,7 +395,14 @@ const BankDataTable: React.FC = () => {
   }, [search, filters]);
 
   // Handler functions
-  const handleFilterChange = (key: keyof typeof filters, value: any) => {
+  const handleMultiSelectChange = (field: string, values: string[]) => {
+    setFilters(prev => ({
+      ...prev,
+      [field]: values
+    }));
+  };
+
+  const handleSingleFilterChange = (key: keyof typeof filters, value: any) => {
     setFilters(prev => ({
       ...prev,
       [key]: value === '' ? undefined : value
@@ -160,12 +420,11 @@ const BankDataTable: React.FC = () => {
 
   const clearFilters = () => {
     setFilters({
-      bank: '',
-      state: '',
-      city: '',
-      district: '',
-      branch: '',
-      centre: '',
+      bank: [],
+      state: [],
+      city: [],
+      branch: [],
+      centre: [],
       ifsc: '',
       micr: '',
       address: '',
@@ -194,7 +453,29 @@ const BankDataTable: React.FC = () => {
       <ArrowDownIcon className="w-4 h-4 ml-1" />;
   };
 
-  // Pagination component
+  // Check if any filters are applied
+  const hasActiveFilters = () => {
+    return (
+      filters.bank.length > 0 ||
+      filters.state.length > 0 ||
+      filters.city.length > 0 ||
+      filters.branch.length > 0 ||
+      filters.centre.length > 0 ||
+      filters.ifsc !== '' ||
+      filters.micr !== '' ||
+      filters.address !== '' ||
+      filters.contact !== '' ||
+      filters.swift !== '' ||
+      filters.iso3166 !== '' ||
+      filters.imps_enabled !== undefined ||
+      filters.rtgs_enabled !== undefined ||
+      filters.neft_enabled !== undefined ||
+      filters.upi_enabled !== undefined ||
+      search !== ''
+    );
+  };
+
+  // Pagination component (same as before)
   const renderPagination = () => {
     if (!apiResponse?.pagination) return null;
 
@@ -312,6 +593,11 @@ const BankDataTable: React.FC = () => {
             >
               <FunnelIcon className="w-4 h-4 mr-2" />
               Filters
+              {hasActiveFilters() && (
+                <span className="ml-2 px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded-full">
+                  •
+                </span>
+              )}
             </button>
 
             <select
@@ -325,7 +611,7 @@ const BankDataTable: React.FC = () => {
               <option value={100}>100 per page</option>
             </select>
 
-            {(Object.values(filters).some(v => v !== '' && v !== undefined) || search) && (
+            {hasActiveFilters() && (
               <button
                 onClick={clearFilters}
                 className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
@@ -340,47 +626,43 @@ const BankDataTable: React.FC = () => {
         {showFilters && (
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {/* Text Filters */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Bank</label>
-                <input
-                  type="text"
-                  placeholder="Filter by bank"
-                  value={filters.bank}
-                  onChange={(e) => handleFilterChange('bank', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
+              {/* Multi-select filters */}
+              <MultiSelectDropdown
+                label="Bank"
+                field="bank"
+                selected={filters.bank}
+                onSelectionChange={handleMultiSelectChange}
+                placeholder="Select banks..."
+                apiBaseUrl={API_BASE_URL}
+              />
 
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
-                <input
-                  type="text"
-                  placeholder="Filter by state"
-                  value={filters.state}
-                  onChange={(e) => handleFilterChange('state', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
+              <MultiSelectDropdown
+                label="State"
+                field="state"
+                selected={filters.state}
+                onSelectionChange={handleMultiSelectChange}
+                placeholder="Select states..."
+                apiBaseUrl={API_BASE_URL}
+              />
 
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
-                <input
-                  type="text"
-                  placeholder="Filter by city"
-                  value={filters.city}
-                  onChange={(e) => handleFilterChange('city', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
+              <MultiSelectDropdown
+                label="City"
+                field="city"
+                selected={filters.city}
+                onSelectionChange={handleMultiSelectChange}
+                placeholder="Select cities..."
+                apiBaseUrl={API_BASE_URL}
+              />
 
+
+              {/* Text input filters */}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">IFSC</label>
                 <input
                   type="text"
                   placeholder="Filter by IFSC"
                   value={filters.ifsc}
-                  onChange={(e) => handleFilterChange('ifsc', e.target.value)}
+                  onChange={(e) => handleSingleFilterChange('ifsc', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -390,7 +672,7 @@ const BankDataTable: React.FC = () => {
                 <label className="block text-xs font-medium text-gray-700 mb-1">IMPS</label>
                 <select
                   value={filters.imps_enabled === undefined ? '' : filters.imps_enabled.toString()}
-                  onChange={(e) => handleFilterChange('imps_enabled', e.target.value === '' ? undefined : e.target.value === 'true')}
+                  onChange={(e) => handleSingleFilterChange('imps_enabled', e.target.value === '' ? undefined : e.target.value === 'true')}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">All</option>
@@ -403,20 +685,7 @@ const BankDataTable: React.FC = () => {
                 <label className="block text-xs font-medium text-gray-700 mb-1">RTGS</label>
                 <select
                   value={filters.rtgs_enabled === undefined ? '' : filters.rtgs_enabled.toString()}
-                  onChange={(e) => handleFilterChange('rtgs_enabled', e.target.value === '' ? undefined : e.target.value === 'true')}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">All</option>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">NEFT</label>
-                <select
-                  value={filters.neft_enabled === undefined ? '' : filters.neft_enabled.toString()}
-                  onChange={(e) => handleFilterChange('neft_enabled', e.target.value === '' ? undefined : e.target.value === 'true')}
+                  onChange={(e) => handleSingleFilterChange('rtgs_enabled', e.target.value === '' ? undefined : e.target.value === 'true')}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">All</option>
@@ -429,7 +698,7 @@ const BankDataTable: React.FC = () => {
                 <label className="block text-xs font-medium text-gray-700 mb-1">UPI</label>
                 <select
                   value={filters.upi_enabled === undefined ? '' : filters.upi_enabled.toString()}
-                  onChange={(e) => handleFilterChange('upi_enabled', e.target.value === '' ? undefined : e.target.value === 'true')}
+                  onChange={(e) => handleSingleFilterChange('upi_enabled', e.target.value === '' ? undefined : e.target.value === 'true')}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="">All</option>
@@ -501,7 +770,7 @@ const BankDataTable: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  {['BANK', 'IFSC', 'BRANCH', 'CITY', 'STATE', 'DISTRICT', 'IMPS', 'RTGS', 'NEFT', 'UPI'].map((column) => (
+                  {['BANK', 'IFSC', 'BRANCH', 'CITY', 'STATE' , 'IMPS', 'RTGS', 'NEFT', 'UPI'].map((column) => (
                     <th
                       key={column}
                       onClick={() => handleSort(column)}
@@ -532,9 +801,6 @@ const BankDataTable: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {bank.STATE}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {bank.DISTRICT}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
