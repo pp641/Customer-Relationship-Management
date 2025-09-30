@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Shield, ArrowRight, ArrowLeft, Eye, EyeOff, Lock } from 'lucide-react';
-import { SendOtp, VerifyOtp , VerifyToken , SignIn , SignOut , SignUp, ResetPassword, validatePassword } from '../api/authApi';
+import { SendOtp, VerifyOtp  , SignIn  , SignUp, ResetPassword, validatePassword } from '../api/authApi';
 
 interface User {
   id: string;
@@ -9,13 +9,7 @@ interface User {
   isVerified: boolean;
 }
 
-interface AuthResponse {
-  success: boolean;
-  user?: User;
-  token?: string;
-  message?: string;
-  requiresOTP?: boolean;
-}
+
 
 const AuthComponent: React.FC = () => {
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot-password'>('signin');
@@ -121,6 +115,7 @@ const AuthComponent: React.FC = () => {
         setUser(response.user);
         // Note: localStorage is not available in Claude artifacts
         // localStorage.setItem('auth_token', response.access_token);
+        {otpSent === true}
         setSuccess('Successfully signed up!');
         setShowOTPInput(false);
       } else {
