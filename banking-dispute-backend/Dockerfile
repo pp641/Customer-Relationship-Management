@@ -1,42 +1,30 @@
 FROM python:3.11-slim
 
-# Set working directory
+# Install system dependencies for SSL and MongoDB
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libssl-dev \
+    libffi-dev \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Install dependencies
+# Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Accept build-time arguments
-ARG VITE_REACT_APP_API_URL
-ARG REDIS_URL
-ARG MONGO_USERNAME
-ARG MONGO_PASSWORD
-ARG AWS_REGION
-ARG SES_SMTP_HOST
-ARG SES_SMTP_PORT
-ARG SES_SMTP_USER
-ARG SES_SMTP_PASS
-ARG AWS_ACCESS_KEY_ID
-ARG AWS_SECRET_ACCESS_KEY
-ARG SES_SENDER_EMAIL
-ARG MONGO_DB
+# Upgrade pip and install Python dependencies
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Expose them as environment variables inside container
-ENV VITE_REACT_APP_API_URL=${VITE_REACT_APP_API_URL}
-ENV REDIS_URL=${REDIS_URL}
-ENV MONGO_USERNAME=${MONGO_USERNAME}
-ENV AWS_REGION=${AWS_REGION}
-ENV SES_SMTP_HOST=${SES_SMTP_HOST}
-ENV SES_SMTP_PORT=${SES_SMTP_PORT}
-ENV SES_SMTP_USER=${SES_SMTP_USER}
-ENV SES_SMTP_PASS=${SES_SMTP_PASS}
-ENV AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-ENV MONGO_PASSWORD=${MONGO_PASSWORD}
-ENV AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-ENV SES_SENDER_EMAIL=${SES_SENDER_EMAIL}
-ENV MONGO_DB=${MONGO_DB}
+# Copy application code
 COPY . .
 
+# Update CA certificates
+RUN update-ca-certificates
 
+EXPOSE 8000
 
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

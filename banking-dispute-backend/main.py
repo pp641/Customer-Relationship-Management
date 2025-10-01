@@ -3,6 +3,11 @@ import os
 from fastapi import FastAPI, Depends
 import redis
 from fastapi.middleware.cors import CORSMiddleware
+from pymongo.errors import (
+    ServerSelectionTimeoutError,
+    ConfigurationError,
+    OperationFailure
+)
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from constants import APP_CONFIG, CORS_SETTINGS
@@ -62,9 +67,31 @@ def setup_mongodb():
     """Setup MongoDB connection using PyMongo"""
     try:
         app_state.logger.info("Connecting to MongoDB...")
+        
+        # Determine if using local or Atlas MongoDB
+        use_local = app_state.config.get('use_local_mongo', False)
+        
+        # Configure connection options
+        connection_options = {
+            'serverSelectionTimeoutMS': 5000,
+            'connectTimeoutMS': 20000,
+            'socketTimeoutMS': 20000,
+        }
+        
+        # Add SSL/TLS options for Atlas
+        if not use_local and 'mongodb+srv' in app_state.config['mongo_uri']:
+            connection_options.update({
+                'tls': True,
+                'tlsAllowInvalidCertificates': False,  # Set to True only for testing
+            })
+            app_state.logger.info("Using MongoDB Atlas with SSL/TLS")
+        else:
+            app_state.logger.info("Using local MongoDB")
+        
+        # Create MongoDB client
         app_state.mongodb_client = MongoClient(
             app_state.config['mongo_uri'],
-            serverSelectionTimeoutMS=5000  # 5 second timeout
+            **connection_options
         )
         
         # Test the connection
@@ -78,12 +105,38 @@ def setup_mongodb():
         dependencies.set_database(app_state.database)
         
         app_state.logger.info("✅ MongoDB connection successful")
+        app_state.logger.info(f"📊 Connected to database: {app_state.config['mongo_db']}")
         return True
-    except Exception as e:
-        app_state.logger.error(f"❌ MongoDB connection failed: {e}")
+        
+    except ServerSelectionTimeoutError as e:
+        app_state.logger.error(f"❌ MongoDB connection timeout: {e}")
+        app_state.logger.error("Check if MongoDB server is accessible and credentials are correct")
         app_state.logger.error(f"Connection string: {app_state.config['mongo_uri'][:50]}...")
         return False
-
+        
+    except ConfigurationError as e:
+        app_state.logger.error(f"❌ MongoDB configuration error: {e}")
+        app_state.logger.error("Check your MongoDB URI format and SSL settings")
+        return False
+        
+    except OperationFailure as e:
+        app_state.logger.error(f"❌ MongoDB authentication failed: {e}")
+        app_state.logger.error("Check your MongoDB username and password")
+        return False
+        
+    except Exception as e:
+        app_state.logger.error(f"❌ MongoDB connection failed: {e}")
+        app_state.logger.error(f"Error type: {type(e).__name__}")
+        
+        # Check for SSL-specific errors
+        if "SSL" in str(e) or "TLS" in str(e):
+            app_state.logger.error("SSL/TLS Error detected. Try one of these solutions:")
+            app_state.logger.error("1. Set USE_LOCAL_MONGO=true to use local MongoDB")
+            app_state.logger.error("2. Update Dockerfile to install SSL certificates")
+            app_state.logger.error("3. Set tlsAllowInvalidCertificates=true (not recommended for production)")
+        
+        app_state.logger.error(f"Connection string: {app_state.config['mongo_uri'][:50]}...")
+        return False
 
 
 
