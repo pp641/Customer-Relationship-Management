@@ -52,7 +52,7 @@ const AuthComponent: React.FC = () => {
       if (response.success) {
         setUser(response.user);
         setSuccess('Successfully signed in!');
-        navigate("/bank-data")
+        navigate("/dashboard")
 
       } else {
         setError(response.message || 'Invalid credentials. Please try again.');
