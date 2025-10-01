@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import  { useState, useEffect } from 'react';
 import { PiggyBank, TrendingUp, Calendar, Percent } from 'lucide-react';
 
 type DepositType = 'FD' | 'RD';
@@ -43,7 +43,6 @@ export default function FDRDCalculator() {
       setTotalInvestment(principalAmount);
     } else {
       // Recurring Deposit calculation
-      const n = 4; // Quarterly compounding for RD
       const monthlyRate = rate / 12;
       
       // RD formula: M = P × [(1 + i)^n - 1] / [1 - (1 + i)^(-1/3)]
