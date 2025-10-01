@@ -1,36 +1,18 @@
 import { defineConfig } from 'vite'
+
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
+    allowedHosts: ["*","frontend","localhost", "127.0.0.1", 'frontend-service']
+  },
   server: {
-    host: true, // Allow external connections
+    host: '0.0.0.0',
     port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-        secure: false,
-        rewrite: (path) => {
-          const newPath = path.replace(/^\/api/, '');
-          console.log(`Rewriting: ${path} → ${newPath}`);
-          return newPath;
-        },
-        configure: (proxy) => {
-          proxy.on('error', (err, req, res) => {
-            console.log('❌ Proxy error:', err.message);
-            console.log('❌ Target URL:', req.url);
-          });
-          proxy.on('proxyReq', (proxyReq, req, res) => {
-            console.log(`🔄 Proxying: ${req.method} ${req.url} → http://127.0.0.1:8000${req.url.replace('/api', '')}`);
-          });
-          
-          proxy.on('proxyRes', (proxyRes, req, res) => {
-            console.log(`✅ Response: ${proxyRes.statusCode} for ${req.url}`);
-          });
-        },
-      }
-    }
+    allowedHosts: ["*","frontend","localhost", "127.0.0.1",'frontend-service']
   }
 })
