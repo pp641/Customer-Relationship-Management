@@ -11,6 +11,7 @@ env:
   REGISTRY: docker.io  
   BACKEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/banking-backend
   FRONTEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/banking-frontend
+  KUBECONFIG: /home/actions-runner/.kube/config 
 
 jobs:
   build-and-push:
