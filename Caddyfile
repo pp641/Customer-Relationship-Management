@@ -1,60 +1,111 @@
-localhost, localhost:80 {
-    # Handle CORS preflight requests for API before any redirects
-    @cors_preflight {
-        method OPTIONS
-        path /api/*
-    }
-    
-    handle @cors_preflight {
-        header {
-            Access-Control-Allow-Origin "*"
-            Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-            Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Accept-Encoding, X-CSRF-Token, X-Requested-With"
-            Access-Control-Max-Age "3600"
-        }
-        respond "" 204
-    }
 
-    handle /companylogoicon.svg {
-        reverse_proxy frontend:4173
-    }
+# HTTP site
+http://139.59.39.12 {
+    # Redirect HTTP to HTTPS (optional, uncomment if you configure HTTPS with self-signed)
+    # redir https://{host}{uri} permanent
 
-    handle /assets/index-*.js {
-        reverse_proxy frontend:4173
-    }
-    
-    handle /assets/index-*.css {
-        reverse_proxy frontend:4173
-    }
-    
-    handle /assets/*.svg {
-        reverse_proxy frontend:4173
-    }
+    # CORS preflight for API
+    @cors_preflight {
+        method OPTIONS
+        path /api/*
+    }
+    handle @cors_preflight {
+        header {
+            Access-Control-Allow-Origin "*"
+            Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Accept-Encoding, X-CSRF-Token, X-Requested-With"
+            Access-Control-Max-Age "3600"
+        }
+        respond "" 204
+    }
 
-    
-    # Customer Tools UI App
-    handle_path /* {
-        reverse_proxy frontend:4173 {
-            header_up Host {upstream_hostport}
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-    
-    # Customer Tools Go Backend API
-    handle_path /api/* {
-        reverse_proxy backend:8000 {
-            header_up Host {upstream_hostport}
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-        }
-    }
+    # Frontend static assets
+    handle /assets/* {
+        reverse_proxy frontend:4173
+    }
 
+    handle /companylogoicon.svg {
+        reverse_proxy frontend:4173
+    }
 
+    # Frontend catch-all
+    handle_path /* {
+        reverse_proxy frontend:4173 {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
 
-    log {
-        output stdout
-        format json
-    }
+    # Backend API
+    handle_path /api/* {
+        reverse_proxy backend:8000 {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
+}
+
+# HTTPS site (self-signed)
+https://139.59.39.12 {
+    tls internal
+
+    # CORS preflight for API
+    @cors_preflight {
+        method OPTIONS
+        path /api/*
+    }
+    handle @cors_preflight {
+        header {
+            Access-Control-Allow-Origin "*"
+            Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Accept-Encoding, X-CSRF-Token, X-Requested-With"
+            Access-Control-Max-Age "3600"
+        }
+        respond "" 204
+    }
+
+    # Frontend static assets
+    handle /assets/* {
+        reverse_proxy frontend:4173
+    }
+
+    handle /companylogoicon.svg {
+        reverse_proxy frontend:4173
+    }
+
+    # Frontend catch-all
+    handle_path /* {
+        reverse_proxy frontend:4173 {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Backend API
+    handle_path /api/* {
+        reverse_proxy backend:8000 {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
 }
