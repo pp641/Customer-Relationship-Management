@@ -559,7 +559,7 @@ const BankDataTable: React.FC = () => {
     <div className="w-full max-w-7xl mx-auto p-6 bg-white">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Bank Data Management</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Bank Data Management Tool</h1>
       </div>
 
       {/* Search and Controls */}
