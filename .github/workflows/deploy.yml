@@ -30,8 +30,6 @@ jobs:
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
-        # Uncomment for private registry:
-        # registry: your-registry:5000
     
     - name: Generate version tag
       id: version
@@ -83,16 +81,20 @@ jobs:
     
     - name: Set kubectl context
       run: |
-        export KUBECONFIG=~/.kube/config
+        export KUBECONFIG=$HOME/.kube/config
         kubectl config use-context default
     
     - name: Create namespace if not exists
       run: |
         kubectl create namespace banking-app --dry-run=client -o yaml | kubectl apply -f -
     
+    - name: Clean up evicted and failed pods
+      run: |
+        kubectl delete pods --field-selector=status.phase==Failed -n banking-app --ignore-not-found=true
+        kubectl delete pods --field-selector=status.phase==Succeeded -n banking-app --ignore-not-found=true
+    
     - name: Update secrets (only if changed)
       run: |
-        # Check if secrets exist and update only if needed
         if ! kubectl get secret backend-secrets -n banking-app &> /dev/null; then
           kubectl apply -f k8s/manifests.yaml
         fi
@@ -101,28 +103,32 @@ jobs:
       run: |
         kubectl apply -f k8s/manifests.yaml
     
-    - name: Restart deployments to pull new images
+    - name: Sequentially restart deployments to minimize memory usage
       run: |
+        echo "Restarting backend..."
         kubectl rollout restart deployment/backend -n banking-app
+        kubectl rollout status deployment/backend -n banking-app --timeout=10m
+        
+        echo "Restarting frontend..."
         kubectl rollout restart deployment/frontend -n banking-app
+        kubectl rollout status deployment/frontend -n banking-app --timeout=10m
     
     - name: Conditionally restart Caddy (only if config changed)
       run: |
-        # This will only trigger if the Caddy configMap or deployment changed
         if git diff HEAD~1 k8s/manifests.yaml | grep -q "caddy"; then
+          echo "Caddy config changed, restarting..."
           kubectl rollout restart deployment/caddy -n banking-app
           kubectl rollout status deployment/caddy -n banking-app --timeout=5m
         else
           echo "Caddy config unchanged, skipping restart"
         fi
     
-    - name: Wait for Backend rollout
+    - name: Clean up old ReplicaSets to free memory
       run: |
-        kubectl rollout status deployment/backend -n banking-app --timeout=20m
-    
-    - name: Wait for Frontend rollout
-      run: |
-        kubectl rollout status deployment/frontend -n banking-app --timeout=20m
+        # Keep only the 2 most recent ReplicaSets per deployment
+        for deployment in backend frontend caddy; do
+          kubectl get rs -n banking-app | grep $deployment | sort -k5 -r | tail -n +3 | awk '{print $1}' | xargs -r kubectl delete rs -n banking-app
+        done
     
     - name: Verify deployment
       run: |
@@ -145,14 +151,15 @@ jobs:
     
     - name: Check pod health
       run: |
-        # Wait a bit for pods to stabilize
         sleep 10
         
-        # Check if any pods are not running
-        NOT_RUNNING=$(kubectl get pods -n banking-app --field-selector=status.phase!=Running --no-headers 2>/dev/null | wc -l)
+        # Only check currently running deployments
+        BACKEND_READY=$(kubectl get deployment backend -n banking-app -o jsonpath='{.status.readyReplicas}')
+        FRONTEND_READY=$(kubectl get deployment frontend -n banking-app -o jsonpath='{.status.readyReplicas}')
+        CADDY_READY=$(kubectl get deployment caddy -n banking-app -o jsonpath='{.status.readyReplicas}')
         
-        if [ "$NOT_RUNNING" -gt 0 ]; then
-          echo "Warning: Some pods are not in Running state"
+        if [ "$BACKEND_READY" != "1" ] || [ "$FRONTEND_READY" != "1" ] || [ "$CADDY_READY" != "1" ]; then
+          echo "Warning: Some deployments are not ready"
           kubectl get pods -n banking-app
           exit 1
         fi

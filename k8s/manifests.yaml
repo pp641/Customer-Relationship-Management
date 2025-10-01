@@ -17,7 +17,7 @@ metadata:
   namespace: banking-app
 type: Opaque
 stringData:
-  redis-password: "defaultpassword"  # Change this!
+  redis-password: "defaultpassword"
 
 ---
 # ================================
@@ -56,41 +56,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
-  storageClassName: local-path  # K3s default, change if needed
-
----
-# ================================
-# PersistentVolumeClaim for Caddy Data
-# ================================
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: caddy-data-pvc
-  namespace: banking-app
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-  storageClassName: local-path
-
----
-# ================================
-# PersistentVolumeClaim for Caddy Config
-# ================================
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: caddy-config-pvc
-  namespace: banking-app
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Mi
+      storage: 2Gi
   storageClassName: local-path
 
 ---
@@ -105,7 +71,12 @@ metadata:
 data:
   Caddyfile: |
     :80 {
-        # Handle CORS preflight requests for API before any redirects
+        # Health check endpoint - MUST BE FIRST
+        handle /health {
+            respond "OK" 200
+        }
+
+        # Handle CORS preflight requests for API
         @cors_preflight {
             method OPTIONS
             path /api/*
@@ -173,6 +144,8 @@ metadata:
   namespace: banking-app
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: redis
@@ -223,11 +196,11 @@ spec:
           failureThreshold: 3
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "50Mi"
+            cpu: "50m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "128Mi"
+            cpu: "200m"
       volumes:
       - name: redis-data
         persistentVolumeClaim:
@@ -262,6 +235,11 @@ metadata:
   namespace: banking-app
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: backend
@@ -306,11 +284,11 @@ spec:
           failureThreshold: 3
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "200m"
+            memory: "100Mi"
+            cpu: "100m"
           limits:
-            memory: "1Gi"
-            cpu: "1000m"
+            memory: "256Mi"
+            cpu: "500m"
 
 ---
 # ================================
@@ -341,6 +319,11 @@ metadata:
   namespace: banking-app
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: frontend
@@ -370,11 +353,11 @@ spec:
           periodSeconds: 5
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "80Mi"
+            cpu: "50m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "200Mi"
+            cpu: "300m"
 
 ---
 # ================================
@@ -405,6 +388,11 @@ metadata:
   namespace: banking-app
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: caddy
@@ -415,7 +403,7 @@ spec:
     spec:
       containers:
       - name: caddy
-        image: caddy:2.8
+        image: caddy:2.8-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
@@ -429,39 +417,39 @@ spec:
           mountPath: /config
         livenessProbe:
           httpGet:
-            path: /
+            path: /health
             port: 80
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /
+            path: /health
             port: 80
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3
+          failureThreshold: 3
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "50Mi"
+            cpu: "50m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "128Mi"
+            cpu: "200m"
       volumes:
       - name: caddy-config
         configMap:
           name: caddy-config
       - name: caddy-data
-        persistentVolumeClaim:
-          claimName: caddy-data-pvc
+        emptyDir: {}
       - name: caddy-config-storage
-        persistentVolumeClaim:
-          claimName: caddy-config-pvc
+        emptyDir: {}
 
 ---
 # ================================
-# Caddy Service (LoadBalancer/NodePort)
+# Caddy Service (NodePort)
 # ================================
 apiVersion: v1
 kind: Service
@@ -482,4 +470,4 @@ spec:
     port: 443
     targetPort: 443
     nodePort: 30443
-  type: NodePort  # Change to LoadBalancer if you have one
+  type: NodePort
