@@ -560,11 +560,6 @@ const BankDataTable: React.FC = () => {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Bank Data Management</h1>
-        {apiResponse?.file_info && (
-          <p className="text-sm text-gray-600">
-            Loaded {apiResponse.file_info.total_records_in_file.toLocaleString()} records from {apiResponse.file_info.file_name}
-          </p>
-        )}
       </div>
 
       {/* Search and Controls */}
