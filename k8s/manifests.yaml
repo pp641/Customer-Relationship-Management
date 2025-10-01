@@ -416,6 +416,7 @@ spec:
       containers:
       - name: caddy
         image: caddy:2.8
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
         - containerPort: 443

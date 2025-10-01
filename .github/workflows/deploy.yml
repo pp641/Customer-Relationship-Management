@@ -105,7 +105,16 @@ jobs:
       run: |
         kubectl rollout restart deployment/backend -n banking-app
         kubectl rollout restart deployment/frontend -n banking-app
-        kubectl rollout restart deployment/caddy -n banking-app
+    
+    - name: Conditionally restart Caddy (only if config changed)
+      run: |
+        # This will only trigger if the Caddy configMap or deployment changed
+        if git diff HEAD~1 k8s/manifests.yaml | grep -q "caddy"; then
+          kubectl rollout restart deployment/caddy -n banking-app
+          kubectl rollout status deployment/caddy -n banking-app --timeout=5m
+        else
+          echo "Caddy config unchanged, skipping restart"
+        fi
     
     - name: Wait for Backend rollout
       run: |
@@ -114,10 +123,6 @@ jobs:
     - name: Wait for Frontend rollout
       run: |
         kubectl rollout status deployment/frontend -n banking-app --timeout=20m
-    
-    - name: Wait for Caddy rollout
-      run: |
-        kubectl rollout status deployment/caddy -n banking-app --timeout=20m
     
     - name: Verify deployment
       run: |
