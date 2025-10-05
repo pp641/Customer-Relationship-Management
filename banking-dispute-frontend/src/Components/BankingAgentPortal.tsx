@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_REACT_APP_API_URL;
 
 interface DisputesResp {
     disputes : Dispute[]

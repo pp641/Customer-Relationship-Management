@@ -1,13 +1,12 @@
 // src/context/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect } from "react";
-
 interface AuthContextType {
   token: string | null;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
 }
-
+const API_BASE = import.meta.env.VITE_REACT_APP_API_URL
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -20,7 +19,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch("http://localhost:8000/auth/token", {
+      const response = await fetch(`${API_BASE}/auth/token`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({

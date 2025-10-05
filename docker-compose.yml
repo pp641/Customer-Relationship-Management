@@ -1,37 +1,78 @@
 version: "3.9"
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-defaultpassword}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-defaultpassword}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   main:
     build:
       context: ./banking-dispute-backend
-    command: python app/main.py
+    container_name: backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     expose:
       - "8000"
-
-  mcp:
-    build:
-      context: ./banking-dispute-backend
-    command: python mcp-server/mcp_server.py
-    expose:
-      - "8080"
+    restart: always
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-defaultpassword}@redis:6379/0
+      - MONGO_USERNAME=prajjwalpandey641
+      - MONGO_PASSWORD=fdTGKrJ4fj3JZzsi
+      - AWS_REGION=ap-southeast-2
+      - SES_SMTP_HOST=email-smtp.ap-southeast-2.amazonaws.com
+      - SES_SMTP_PORT=587
+      - SES_SMTP_USER=AKIAQNEMAGYZQADAAYWR
+      - SES_SMTP_PASS=BCT6msX6oLeOl/nBXRQ0BdNil6EAvAIvc0fqnkonzAAG
+      - AWS_ACCESS_KEY_ID=AKIAQNEMAGYZRCZX3MX5
+      - AWS_SECRET_ACCESS_KEY=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
+      - SES_SENDER_EMAIL=prajjwalpandey641@gmail.com
+      - MONGO_DB=crmdb
+    depends_on:
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./banking-dispute-frontend
-    environment:
-      - VITE_REACT_APP_API_URL=http://localhost:80/api
+      dockerfile: Dockerfile
+      args:
+        VITE_REACT_APP_API_URL: "/api"
+    container_name: frontend
     command: ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]
     expose:
       - "4173"
+    volumes:
+      - frontend_build:/app/dist
+    restart: "always"
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.8
     container_name: caddy
+    restart: always
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      - frontend_build:/srv/frontend:ro
     depends_on:
       - main
-      - mcp
       - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:
+  frontend_build:
+  redis_data:

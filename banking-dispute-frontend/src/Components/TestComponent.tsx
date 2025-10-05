@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User,  Building2 } from 'lucide-react';
 import axios from 'axios'
-const BASE_URL = 'http://localhost:8000'
-
+import { BASE_URL } from '../Constants/constants';
 interface Message {
   id: string;
   text: string;

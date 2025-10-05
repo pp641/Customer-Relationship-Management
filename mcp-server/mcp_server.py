@@ -56,7 +56,6 @@ KNOWLEDGE_DIR = Path("knowledge")
 TEMPLATES_DIR.mkdir(exist_ok=True)
 KNOWLEDGE_DIR.mkdir(exist_ok=True)
 
-# In-memory storage (replace with database in production)
 templates_db: Dict[str, Template] = {}
 guidance_db: Dict[str, List[GuidanceStep]] = {}
 knowledge_db: Dict[str, DisputeKnowledge] = {}

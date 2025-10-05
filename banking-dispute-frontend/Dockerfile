@@ -1,21 +1,14 @@
-FROM node:20-alpine AS builder
-
-# Set working directory
+FROM node:20-alpine
 WORKDIR /app
 
-# Copy package files first (for caching)
-COPY package.json package-lock.json* ./
+# Copy and install
+COPY package*.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm install
-
-# Copy all source code (includes tsconfig.json, src/, public/)
+# Copy source
 COPY . .
 
-# Build the app
+# Build with env var
+ARG VITE_REACT_APP_API_URL
+ENV VITE_REACT_APP_API_URL=$VITE_REACT_APP_API_URL
 RUN npm run build
-
-# Runtime env injection for dynamic API_URL
-CMD envsubst < /app/public/config.js > /app/public/config.generated.js && \
-    mv /app/public/config.generated.js /app/public/config.js && \
-    npm run preview -- --host 0.0.0.0 --port 4173
