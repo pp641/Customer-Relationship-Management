@@ -9,6 +9,7 @@ import EMICalculator from "./Components/EmiCalculator";
 import FinancialDashboard from "./Components/MainDashboard";
 import LoanEligibilityChecker from "./Components/LoanEligibilityChecker";
 import FDRDCalculator from "./Components/FDRDCalculator";
+import FinancialChatbot from "./Components/ChattingBox";
 
 // Dummy Protected Component for Testing
 const DummyProtectedComponent: React.FC = () => {
@@ -43,6 +44,12 @@ const App: React.FC = () => {
                 <DummyProtectedComponent />
               </ProtectedRoute>
             }
+          />
+          <Route 
+          path="/new-dashboard" 
+          element = {
+            <FinancialChatbot/>
+          }
           />
           <Route
             path="/dashboard"

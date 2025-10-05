@@ -16,7 +16,6 @@ from urllib.parse import quote_plus
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from services import OllamaService
 from pymongo import MongoClient
 import boto3
 from database import Database
@@ -241,8 +240,6 @@ async def lifespan(app: FastAPI):
     if not mongo_success:
         app_state.logger.error("⚠️  MongoDB connection failed - API will not work properly!")
     
-    # Setup other services
-    await setup_ollama()
     setup_smtp()
     setup_redis()
     
@@ -316,9 +313,13 @@ def create_app() -> FastAPI:
     # Import routers here to avoid circular imports
     from routers.auth import router as auth_router
     from routers.banks import router as bank_router
+    from routers.chatbot import router as chatbot_router
+    from routers.financial import router as financial_router
     
     app.include_router(auth_router)
     app.include_router(bank_router)
+    app.include_router(chatbot_router)
+    app.include_router(financial_router)
     # app.include_router(chat.router)
     # app.include_router(disputes.router)
     # app.include_router(health.router)
